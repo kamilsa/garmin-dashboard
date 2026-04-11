@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { MessageSquare, Send, X, Bot, User, Loader2, ChevronDown } from 'lucide-react';
+import { MessageSquare, Send, X, Bot, User, Loader2, ChevronDown, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const API_BASE_URL = 'http://localhost:3001/api';
@@ -28,6 +28,7 @@ const ChatAssistant: React.FC = () => {
   const [showModelPicker, setShowModelPicker] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -81,10 +82,15 @@ const ChatAssistant: React.FC = () => {
     setInput('');
     setIsLoading(true);
 
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     try {
       const response = await axios.post(`${API_BASE_URL}/chat`, {
         messages: newMessages,
         model: selectedModel,
+      }, {
+        signal: abortController.signal
       });
 
       const assistantMessage: Message = {
@@ -93,13 +99,25 @@ const ChatAssistant: React.FC = () => {
       };
       setMessages([...newMessages, assistantMessage]);
     } catch (error) {
-      console.error('Chat Error:', error);
-      setMessages([...newMessages, { 
-        role: 'assistant', 
-        content: "Sorry, I encountered an error while trying to process your request." 
-      }]);
+      if (axios.isCancel(error)) {
+        console.log('Request canceled', error.message);
+        // Do not add an error message if the user manually canceled
+      } else {
+        console.error('Chat Error:', error);
+        setMessages([...newMessages, { 
+          role: 'assistant', 
+          content: "Sorry, I encountered an error while trying to process your request." 
+        }]);
+      }
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
   };
 
@@ -247,15 +265,26 @@ const ChatAssistant: React.FC = () => {
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSend()}
                   placeholder="Ask about your stats..."
-                  className="w-full bg-white dark:bg-[#2C2C2E] text-[#1D1D1F] dark:text-[#F5F5F7] text-sm font-bold p-4 pr-12 rounded-2xl border border-black/10 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all placeholder:text-[#86868B]"
+                  disabled={isLoading}
+                  className="w-full bg-white dark:bg-[#2C2C2E] text-[#1D1D1F] dark:text-[#F5F5F7] text-sm font-bold p-4 pr-12 rounded-2xl border border-black/10 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all placeholder:text-[#86868B] disabled:opacity-50"
                 />
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim() || isLoading}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-blue-500 text-white rounded-xl shadow-lg hover:scale-110 active:scale-95 disabled:opacity-50 disabled:scale-100 transition-all"
-                >
-                  <Send size={18} />
-                </button>
+                {isLoading ? (
+                  <button
+                    onClick={handleStop}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl shadow-sm hover:shadow-lg transition-all"
+                    title="Stop generating"
+                  >
+                    <Square fill="currentColor" size={16} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSend}
+                    disabled={!input.trim()}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-blue-500 text-white rounded-xl shadow-lg hover:scale-110 active:scale-95 disabled:opacity-50 disabled:scale-100 transition-all"
+                  >
+                    <Send size={18} />
+                  </button>
+                )}
               </div>
             </div>
           </motion.div>

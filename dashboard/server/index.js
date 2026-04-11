@@ -19,7 +19,7 @@ const OLLAMA_URL = 'http://localhost:11434';
 const DEFAULT_MODEL = 'glm-4.7-flash';
 
 // Helper: call Ollama's /api/chat endpoint
-async function ollamaChat(model, messages, tools = null) {
+async function ollamaChat(model, messages, tools = null, signal = null) {
   const body = {
     model,
     messages,
@@ -27,11 +27,14 @@ async function ollamaChat(model, messages, tools = null) {
   };
   if (tools) body.tools = tools;
 
-  const resp = await fetch(`${OLLAMA_URL}/api/chat`, {
+  const fetchOptions = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  };
+  if (signal) fetchOptions.signal = signal;
+
+  const resp = await fetch(`${OLLAMA_URL}/api/chat`, fetchOptions);
   if (!resp.ok) {
     const text = await resp.text();
     throw new Error(`Ollama error ${resp.status}: ${text}`);
@@ -193,6 +196,12 @@ app.post('/api/chat', async (req, res) => {
   const { messages, model: requestedModel } = req.body;
   const model = requestedModel || DEFAULT_MODEL;
 
+  // Setup abort controller mapped to the client request
+  const ac = new AbortController();
+  req.on('close', () => {
+    ac.abort();
+  });
+
   const now = new Date();
   const today = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const todayISO = now.toISOString().split('T')[0];
@@ -246,12 +255,13 @@ Guidelines:
     ];
 
     // 1. Initial call to LLM via Ollama
-    let result = await ollamaChat(model, currentMessages, ollamaTools);
+    let result = await ollamaChat(model, currentMessages, ollamaTools, ac.signal);
     let assistantMsg = result.message;
 
     // 2. Handle Tool Calls (supports multiple rounds)
     let maxRounds = 5;
     while (assistantMsg.tool_calls && assistantMsg.tool_calls.length > 0 && maxRounds-- > 0) {
+      if (ac.signal.aborted) break;
       // Add the assistant message (with tool_calls) to conversation
       currentMessages.push({
         role: 'assistant',
@@ -275,12 +285,20 @@ Guidelines:
       }
 
       // 3. Follow-up call to model with tool results
-      result = await ollamaChat(model, currentMessages, ollamaTools);
+      result = await ollamaChat(model, currentMessages, ollamaTools, ac.signal);
       assistantMsg = result.message;
+    }
+
+    if (ac.signal.aborted) {
+      return res.status(499).json({ error: 'Client Closed Request' });
     }
 
     res.json({ role: 'assistant', content: assistantMsg.content || '(No response from the model)' });
   } catch (error) {
+    if (error.name === 'AbortError') {
+      console.log('Ollama request aborted by user');
+      return res.status(499).json({ error: 'Request aborted' });
+    }
     console.error('AI Chat Error:', error?.message || error);
     res.status(500).json({ error: 'Failed to communicate with AI assistant', details: error?.message });
   }

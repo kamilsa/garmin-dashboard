@@ -4,19 +4,23 @@ import {
   Moon, 
   Sun, 
   User,
-  Bell
+  Bell,
+  RefreshCw
 } from 'lucide-react';
 import DailySummaryWidget from './components/DailySummaryWidget';
 import SleepWidget from './components/SleepWidget';
 import WellnessWidget from './components/WellnessWidget';
 import BiometricsWidget from './components/BiometricsWidget';
 import ActivityMapWidget from './components/ActivityMapWidget';
+import ChatAssistant from './components/ChatAssistant';
 
 const API_BASE_URL = 'http://localhost:3001/api';
 
 const App: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [config, setConfig] = useState<{ mapboxToken: string } | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -38,6 +42,20 @@ const App: React.FC = () => {
     }
   }, [isDarkMode]);
 
+  const handleRefresh = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      await axios.post(`${API_BASE_URL}/refresh`);
+      setRefreshKey(prev => prev + 1);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      alert('Failed to sync data from Garmin. Check server logs.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col p-4 md:p-6 transition-colors duration-300 overflow-hidden">
       {/* Header */}
@@ -51,6 +69,14 @@ const App: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-3">
+          <button 
+            onClick={handleRefresh}
+            disabled={isSyncing}
+            className={`p-2.5 rounded-full bg-white dark:bg-[#1C1C1E] shadow-apple border border-black/5 dark:border-white/10 hover:scale-110 transition-transform text-[#1D1D1F] dark:text-[#F5F5F7] ${isSyncing ? 'opacity-50' : ''}`}
+            title="Sync with Garmin Connect"
+          >
+            <RefreshCw size={20} className={isSyncing ? 'animate-spin' : ''} />
+          </button>
           <button 
             onClick={() => setIsDarkMode(!isDarkMode)}
             className="p-2.5 rounded-full bg-white dark:bg-[#1C1C1E] shadow-apple border border-black/5 dark:border-white/10 hover:scale-110 transition-transform text-[#1D1D1F] dark:text-[#F5F5F7]"
@@ -71,28 +97,31 @@ const App: React.FC = () => {
         
         {/* Large Widget - Activities (Map + List) */}
         <div className="md:col-span-3 md:row-span-2 bento-card p-0 overflow-hidden relative">
-          <ActivityMapWidget token={config?.mapboxToken || ''} />
+          <ActivityMapWidget key={`map-${refreshKey}`} token={config?.mapboxToken || ''} />
         </div>
 
         {/* Small Widgets */}
         <div className="md:col-span-1 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden">
-          <DailySummaryWidget />
+          <DailySummaryWidget key={`summary-${refreshKey}`} />
         </div>
 
         <div className="md:col-span-1 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden text-primary">
-          <WellnessWidget />
+          <WellnessWidget key={`wellness-${refreshKey}`} />
         </div>
 
         {/* Medium Widgets (Bottom Row) */}
         <div className="md:col-span-2 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden text-primary">
-          <SleepWidget />
+          <SleepWidget key={`sleep-${refreshKey}`} />
         </div>
 
         <div className="md:col-span-2 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden text-primary">
-          <BiometricsWidget />
+          <BiometricsWidget key={`biometrics-${refreshKey}`} />
         </div>
 
       </main>
+
+      {/* AI Assistant */}
+      <ChatAssistant />
 
       {/* Footer / Status */}
       <footer className="max-w-7xl w-full mx-auto mt-4 py-3 border-t border-black/5 dark:border-white/10 flex flex-col md:flex-row justify-between items-center gap-2 text-[10px] text-tertiary font-medium shrink-0">

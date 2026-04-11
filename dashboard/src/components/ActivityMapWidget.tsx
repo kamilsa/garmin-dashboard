@@ -81,7 +81,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
   }, []);
 
   const isOutdoor = (type: string) => {
-    return ['running', 'cycling', 'hiking', 'snowboarding', 'skiing', 'resort_snowboarding', 'backcountry_skiing_snowboarding', 'walking', 'open_water_swimming', 'treadmill_running'].includes(type);
+    return ['running', 'cycling', 'hiking', 'snowboarding', 'skiing', 'resort_snowboarding', 'backcountry_skiing_snowboarding', 'walking', 'open_water_swimming'].includes(type);
   };
 
   const setupMapExtras = (m: mapboxgl.Map) => {
@@ -457,7 +457,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
         {/* Full Screen Toggle */}
         <button 
           onClick={() => setIsFullScreen(!isFullScreen)}
-          className="absolute top-6 right-6 z-20 p-2.5 bg-white/90 dark:bg-[#1C1C1E]/90 backdrop-blur-md rounded-2xl shadow-2xl border border-black/5 dark:border-white/10 text-primary hover:scale-110 transition-all"
+          className="absolute top-6 right-6 z-20 p-2.5 bg-white/90 dark:bg-[#1C1C1E]/90 backdrop-blur-md rounded-2xl shadow-2xl border border-black/5 dark:border-white/10 text-[#1D1D1F] dark:text-[#F5F5F7] hover:scale-110 transition-all"
         >
           {isFullScreen ? <Minimize size={18} /> : <Maximize size={18} />}
         </button>
@@ -472,7 +472,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
                 className={`p-3 rounded-2xl shadow-xl border border-black/5 dark:border-white/10 transition-all flex items-center gap-2 font-black text-[10px] uppercase tracking-widest backdrop-blur-md ${
                   mapStyle === 'outdoors' 
                     ? 'bg-blue-500 text-white' 
-                    : 'bg-white/90 dark:bg-[#1C1C1E]/90 text-primary hover:bg-white dark:hover:bg-[#1C1C1E]'
+                    : 'bg-white/90 dark:bg-[#1C1C1E]/90 text-[#1D1D1F] dark:text-[#F5F5F7] hover:bg-white dark:hover:bg-[#1C1C1E]'
                 }`}
               >
                 <MapTypeIcon size={16} /> Outdoors
@@ -482,7 +482,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
                 className={`p-3 rounded-2xl shadow-xl border border-black/5 dark:border-white/10 transition-all flex items-center gap-2 font-black text-[10px] uppercase tracking-widest backdrop-blur-md ${
                   mapStyle === 'satellite' 
                     ? 'bg-blue-500 text-white' 
-                    : 'bg-white/90 dark:bg-[#1C1C1E]/90 text-primary hover:bg-white dark:hover:bg-[#1C1C1E]'
+                    : 'bg-white/90 dark:bg-[#1C1C1E]/90 text-[#1D1D1F] dark:text-[#F5F5F7] hover:bg-white dark:hover:bg-[#1C1C1E]'
                 }`}
               >
                 <Globe size={16} /> Satellite

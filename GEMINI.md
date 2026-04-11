@@ -55,9 +55,10 @@ Ensure your LiteLLM proxy is running on port 4000 with the `glm-4.7-flash` model
 ### AI Integration
 - The backend `/api/chat` endpoint connects directly to a local **Ollama** server (port 11434).
 - It uses a custom **Tool-Calling** loop to execute read-only SQLite queries directly via `better-sqlite3`.
-- **Timezone Awareness**: The assistant is instructed to automatically convert UTC database timestamps to the user's local timezone (detected via `getTimezoneOffset`).
+- **Timezone Awareness**: The assistant is automatically provided with the user's local timezone offset and instructed to convert UTC database timestamps to local time for all displays.
+- **Request Aborting**: Supports stopping LLM generation both from the UI and backend using `AbortController` and the `fetch` signal API.
 - **Security**: The assistant is restricted to read-only `SELECT` statements and basic schema discovery (`list_tables`).
-- **Models**: Supports the `glm-4.7-flash` model by default (or any model available in the local Ollama instance).
+- **Models**: Supports dynamic model selection via the UI, fetching available tags from the local Ollama instance.
 
 ### API Endpoints
 - `GET /api/summary`: Steps and active calories.

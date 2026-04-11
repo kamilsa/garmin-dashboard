@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { MessageSquare, Send, X, Bot, User, Loader2, ChevronDown, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -47,9 +49,7 @@ const ChatAssistant: React.FC = () => {
         if (resp.data.models && resp.data.models.length > 0) {
           setModels(resp.data.models);
           // Set default model if not already selected
-          if (!selectedModel) {
-            setSelectedModel(resp.data.model || resp.data.models[0].name);
-          }
+          setSelectedModel(prev => prev || resp.data.model || resp.data.models[0].name);
         }
       } catch {
         setLlmStatus('offline');
@@ -240,8 +240,34 @@ const ChatAssistant: React.FC = () => {
                         {msg.role === 'user' ? 'You' : 'Assistant'}
                       </span>
                     </div>
-                    <div className="font-medium leading-relaxed whitespace-pre-wrap">
-                      {msg.content}
+                    <div className="font-medium leading-relaxed">
+                      {msg.role === 'assistant' ? (
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
+                            strong: ({node, ...props}) => <strong className="font-black" {...props} />,
+                            ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-2 space-y-1 last:mb-0" {...props} />,
+                            ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-2 space-y-1 last:mb-0" {...props} />,
+                            li: ({node, ...props}) => <li className="" {...props} />,
+                            code: ({node, inline, ...props}: any) => 
+                              inline ? <code className="bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded text-[11px] font-mono" {...props} />
+                                     : <code className="block bg-black/10 dark:bg-white/10 p-2 rounded-xl text-[11px] font-mono overflow-x-auto mb-2 last:mb-0" {...props} />,
+                            pre: ({node, ...props}) => <pre className="mb-2 last:mb-0 custom-scrollbar" {...props} />,
+                            h1: ({node, ...props}) => <h1 className="text-lg font-black mb-2 mt-4 first:mt-0" {...props} />,
+                            h2: ({node, ...props}) => <h2 className="text-base font-black mb-2 mt-3 first:mt-0" {...props} />,
+                            h3: ({node, ...props}) => <h3 className="text-sm font-black mb-2 mt-2 first:mt-0" {...props} />,
+                            a: ({node, ...props}) => <a className="text-blue-500 hover:underline" {...props} />,
+                            table: ({node, ...props}) => <table className="w-full text-left border-collapse mb-2" {...props} />,
+                            th: ({node, ...props}) => <th className="border-b-2 border-black/10 dark:border-white/10 pb-1 pr-2 font-bold" {...props} />,
+                            td: ({node, ...props}) => <td className="border-b border-black/5 dark:border-white/5 py-1 pr-2" {...props} />
+                          }}
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
+                      ) : (
+                        <div className="whitespace-pre-wrap">{msg.content}</div>
+                      )}
                     </div>
                   </div>
                 </div>

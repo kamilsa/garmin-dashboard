@@ -198,8 +198,10 @@ app.post('/api/chat', async (req, res) => {
 
   // Setup abort controller mapped to the client request
   const ac = new AbortController();
-  req.on('close', () => {
-    ac.abort();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      ac.abort();
+    }
   });
 
   const now = new Date();

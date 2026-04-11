@@ -28,6 +28,7 @@ out/
 dashboard/node_modules/
 dashboard/server/node_modules/
 dashboard/dist/
+dashboard/server/test_*.js
 
 # External Libraries (local clones for reference only)
 garmin-health-data/

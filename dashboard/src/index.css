@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@theme {
+  --radius-3xl: 2rem;
+  --color-apple-bg-light: #F2F2F7;
+  --color-apple-bg-dark: #000000;
+  --color-apple-card-light: #FFFFFF;
+  --color-apple-card-dark: #1C1C1E;
+  --shadow-apple: 0 10px 30px -10px rgba(0, 0, 0, 0.1);
+}
+
+:root {
+  --apple-bg: #F2F2F7;
+  --apple-card: #FFFFFF;
+  --apple-text-primary: #1D1D1F;
+  --apple-text-secondary: #424245;
+  --apple-text-tertiary: #86868B;
+}
+
+.dark {
+  --apple-bg: #000000;
+  --apple-card: #1C1C1E;
+  --apple-text-primary: #F5F5F7;
+  --apple-text-secondary: #A1A1A6;
+  --apple-text-tertiary: #86868B;
+}
+
+body {
+  background-color: var(--apple-bg);
+  color: var(--apple-text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Myriad Set Pro", "SF Pro Icons", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+  -webkit-font-smoothing: antialiased;
+}
+
+.bento-card {
+  @apply bg-[var(--apple-card)] rounded-3xl shadow-apple transition-all duration-300 overflow-hidden border border-black/5 dark:border-white/10;
+}
+
+.bento-card:hover {
+  @apply shadow-2xl scale-[1.005];
+}
+
+/* Force high contrast text classes */
+.text-primary {
+  color: var(--apple-text-primary) !important;
+}
+
+.text-secondary {
+  color: var(--apple-text-secondary) !important;
+}
+
+.text-tertiary {
+  color: var(--apple-text-tertiary) !important;
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Center Mapbox Controls vertically on the right */
+.mapboxgl-ctrl-top-right,
+.mapboxgl-ctrl-bottom-right {
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  bottom: auto !important;
+}

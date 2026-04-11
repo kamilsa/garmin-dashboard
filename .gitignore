@@ -1,0 +1,33 @@
+# Data & Secrets
+garmin_data.db
+mapbox_token
+.env
+*.db
+*.log
+
+# Dependencies
+node_modules/
+.venv/
+venv/
+env/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# IDE & OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sub-projects
+dashboard/node_modules/
+dashboard/server/node_modules/
+dashboard/dist/
+
+# External Libraries (local clones for reference only)
+garmin-health-data/

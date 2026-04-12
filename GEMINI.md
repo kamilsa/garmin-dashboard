@@ -68,5 +68,6 @@ Ensure your LiteLLM proxy is running on port 4000 with the `glm-4.7-flash` model
 - `GET /api/activities`: List of recent activities with sport-specific metrics.
 - `GET /api/activity/:id/path`: GPS coordinates for Mapbox.
 - `GET /api/biometrics`: VO2 Max and Weight trends.
+- `GET /api/fitness-age`: Calculated fitness age and VO2 Max trends.
 - `POST /api/refresh`: Triggers a background `garmin extract`.
 - `POST /api/chat`: AI Assistant orchestrator.

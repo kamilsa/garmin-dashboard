@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { MessageSquare, Send, X, Bot, User, Loader2, ChevronDown, Square } from 'lucide-react';
+import { MessageSquare, Send, X, Bot, User, Loader2, ChevronDown, Square, Maximize2, Minimize2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const API_BASE_URL = 'http://localhost:3001/api';
@@ -28,6 +28,7 @@ const ChatAssistant: React.FC = () => {
   const [models, setModels] = useState<OllamaModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -132,14 +133,37 @@ const ChatAssistant: React.FC = () => {
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-[100]">
+    <div className={`fixed z-[100] ${isExpanded ? 'inset-0' : 'bottom-6 right-6'}`}>
+      {/* Backdrop for expanded mode */}
+      <AnimatePresence>
+        {isExpanded && isOpen && (
+          <motion.div
+            key="backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+            onClick={() => setIsExpanded(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Chat panel wrapper — positions differ for compact vs expanded */}
+      <div className={isExpanded ? 'absolute inset-0 flex items-center justify-center p-6 pointer-events-none' : 'flex flex-col items-end'}>
       <AnimatePresence>
         {isOpen && (
           <motion.div
+            key="chat-panel"
+            layout
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="mb-4 w-[350px] md:w-[400px] h-[500px] bg-white dark:bg-[#1C1C1E] rounded-[2rem] shadow-2xl border border-black/10 dark:border-white/10 flex flex-col overflow-hidden"
+            transition={{ type: 'spring', damping: 30, stiffness: 400 }}
+            className={`pointer-events-auto bg-white dark:bg-[#1C1C1E] rounded-[2rem] shadow-2xl border border-black/10 dark:border-white/10 flex flex-col overflow-hidden ${
+              isExpanded
+                ? 'w-full h-full max-w-4xl max-h-[90vh]'
+                : 'mb-4 w-[350px] md:w-[400px] h-[500px]'
+            }`}
           >
             {/* Header */}
             <div className="p-5 border-b border-black/5 dark:border-white/5 flex justify-between items-center bg-blue-500/10">
@@ -152,12 +176,21 @@ const ChatAssistant: React.FC = () => {
                   <p className={`text-[10px] font-bold uppercase tracking-widest ${llmStatus === 'online' ? 'text-green-500' : llmStatus === 'offline' ? 'text-red-400' : 'text-yellow-500'}`}>Local LLM • {llmStatus === 'checking' ? 'Connecting…' : llmStatus === 'online' ? 'Online' : 'Offline'}</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setIsOpen(false)}
-                className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full text-[#86868B] transition-colors"
-              >
-                <X size={20} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsExpanded(e => !e)}
+                  className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full text-[#86868B] transition-colors"
+                  title={isExpanded ? 'Collapse' : 'Expand to full screen'}
+                >
+                  {isExpanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                </button>
+                <button 
+                  onClick={() => setIsOpen(false)}
+                  className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full text-[#86868B] transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             {/* Model Picker */}
@@ -316,16 +349,20 @@ const ChatAssistant: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
 
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={() => setIsOpen(!isOpen)}
-        className="p-4 bg-blue-500 text-white rounded-full shadow-2xl shadow-blue-500/40 border-4 border-white dark:border-[#1C1C1E] relative group"
-      >
-        <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white dark:border-[#1C1C1E] z-10 ${llmStatus === 'online' ? 'bg-green-500' : llmStatus === 'offline' ? 'bg-red-400' : 'bg-yellow-500 animate-pulse'}`} />
-        {isOpen ? <X size={24} /> : <MessageSquare size={24} />}
-      </motion.button>
+      {/* FAB — hidden when expanded */}
+      {!isExpanded && (
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setIsOpen(!isOpen)}
+          className="p-4 bg-blue-500 text-white rounded-full shadow-2xl shadow-blue-500/40 border-4 border-white dark:border-[#1C1C1E] relative group"
+        >
+          <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white dark:border-[#1C1C1E] z-10 ${llmStatus === 'online' ? 'bg-green-500' : llmStatus === 'offline' ? 'bg-red-400' : 'bg-yellow-500 animate-pulse'}`} />
+          {isOpen ? <X size={24} /> : <MessageSquare size={24} />}
+        </motion.button>
+      )}
     </div>
   );
 };

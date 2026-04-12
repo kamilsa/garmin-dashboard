@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { ResponsiveContainer, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import { 
   Map as MapIcon, 
   ChevronRight, 
@@ -36,7 +37,9 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [loadingPath, setLoadingPath] = useState(false);
   const [mapStyle, setMapStyle] = useState<'outdoors' | 'satellite'>('outdoors');
-  const [viewMode, setMapViewMode] = useState<'map' | 'stats'>('map');
+  const [viewMode, setMapViewMode] = useState<'map' | 'stats' | 'charts'>('map');
+  const [tsData, setTsData] = useState<any[]>([]);
+  const [loadingTs, setLoadingTs] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<mapboxgl.Map | null>(null);
@@ -79,6 +82,31 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
     };
     fetchActivities();
   }, []);
+
+  useEffect(() => {
+    if (viewMode === 'charts' && selectedActivity) {
+      setLoadingTs(true);
+      axios.get(`${API_BASE_URL}/activity/${selectedActivity.activity_id}/ts`)
+        .then(res => {
+          let firstTs: number | null = null;
+          const data = res.data.map((d: any) => {
+            const currentTs = new Date(d.timestamp.replace(' ', 'T') + 'Z').getTime();
+            if (!firstTs) firstTs = currentTs;
+            const elapsedSecs = Math.floor((currentTs - firstTs) / 1000);
+            const h = Math.floor(elapsedSecs / 3600);
+            const m = Math.floor((elapsedSecs % 3600) / 60);
+            const s = elapsedSecs % 60;
+            return { 
+              ...d, 
+              elapsedStr: h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}` : `${m}:${s.toString().padStart(2, '0')}` 
+            };
+          });
+          setTsData(data);
+        })
+        .catch(err => console.error('Error fetching TS data', err))
+        .finally(() => setLoadingTs(false));
+    }
+  }, [selectedActivity?.activity_id, viewMode]);
 
   const isOutdoor = (type: string) => {
     return ['running', 'cycling', 'hiking', 'snowboarding', 'skiing', 'resort_snowboarding', 'backcountry_skiing_snowboarding', 'walking', 'open_water_swimming'].includes(type);
@@ -382,6 +410,165 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
     );
   };
 
+  const renderCharts = () => {
+    if (!selectedActivity) return null;
+    if (loadingTs) {
+      return (
+        <div className="p-8 h-full flex flex-col items-center justify-center bg-[var(--apple-bg)]">
+          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin shadow-lg" />
+        </div>
+      );
+    }
+    if (tsData.length === 0) {
+      return (
+        <div className="p-8 h-full flex flex-col items-center justify-center bg-[var(--apple-bg)] text-tertiary font-bold text-sm">
+          No time-series data available for this activity.
+        </div>
+      );
+    }
+
+    const CustomTooltip = ({ active, payload, label }: any) => {
+      if (active && payload && payload.length) {
+        return (
+          <div className="bg-white/95 dark:bg-[#1C1C1E]/95 backdrop-blur-md p-3 rounded-xl border border-black/10 dark:border-white/10 shadow-xl min-w-32">
+            <div className="text-[10px] font-black text-tertiary mb-2 uppercase tracking-widest">{label}</div>
+            {payload.map((p: any, i: number) => (
+              <div key={i} className="text-sm font-black flex justify-between gap-4" style={{ color: p.color }}>
+                <span>{p.name}</span>
+                <span>{typeof p.value === 'number' ? p.value.toFixed(1) : p.value} {p.unit}</span>
+              </div>
+            ))}
+          </div>
+        );
+      }
+      return null;
+    };
+
+    return (
+      <div className="p-6 md:p-8 h-full overflow-y-auto bg-[var(--apple-bg)] transition-colors duration-300 custom-scrollbar">
+        <div className="max-w-4xl mx-auto space-y-6 pb-8">
+          <div className="flex items-center gap-4 mb-8">
+            <div className="p-4 bg-purple-500 rounded-[1.5rem] text-white shadow-xl hidden lg:block">
+              <TrendingUp size={24} />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-primary mb-1 tracking-tight">Performance Charts</h2>
+              <p className="text-tertiary font-bold uppercase tracking-widest text-[10px]">
+                {selectedActivity.activity_name || selectedActivity.activity_type.replace(/_/g, ' ')}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className="bento-card p-6 bg-[var(--apple-card)]">
+              <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Timer size={12} className="text-blue-500" /> Pace (min/km)
+              </div>
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={tsData} syncId="activityCharts" margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <XAxis dataKey="elapsedStr" hide />
+                    <YAxis reversed domain={['dataMin', 'dataMax']} hide />
+                    <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(0,0,0,0.1)', strokeWidth: 1 }} />
+                    <Area type="monotone" dataKey="pace" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} name="Pace" unit="min/km" isAnimationActive={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="bento-card p-6 bg-[var(--apple-card)]">
+              <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Heart size={12} className="text-red-500" /> Heart Rate (bpm)
+              </div>
+              <div className="h-32">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={tsData} syncId="activityCharts" margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <XAxis dataKey="elapsedStr" hide />
+                    <YAxis domain={['auto', 'auto']} hide />
+                    <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(0,0,0,0.1)', strokeWidth: 1 }} />
+                    <Line type="monotone" dataKey="hr" stroke="#ef4444" strokeWidth={2} dot={false} name="HR" unit="bpm" isAnimationActive={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {tsData.some(d => d.power) && (
+              <div className="bento-card p-6 bg-[var(--apple-card)]">
+                <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Zap size={12} className="text-purple-500" /> Power (W)
+                </div>
+                <div className="h-40">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={tsData} syncId="activityCharts" margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <XAxis dataKey="elapsedStr" hide />
+                      <YAxis domain={['auto', 'auto']} hide />
+                      <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(0,0,0,0.1)', strokeWidth: 1 }} />
+                      <Area type="monotone" dataKey="power" stroke="#a855f7" fill="#a855f7" fillOpacity={0.2} name="Power" unit="W" isAnimationActive={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {tsData.some(d => d.step_length) && (
+              <div className="bento-card p-6 bg-[var(--apple-card)]">
+                <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Activity size={12} className="text-blue-400" /> Stride Length (m)
+                </div>
+                <div className="h-32">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={tsData} syncId="activityCharts" margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <XAxis dataKey="elapsedStr" hide />
+                      <YAxis domain={['auto', 'auto']} hide />
+                      <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(0,0,0,0.1)', strokeWidth: 1 }} />
+                      <Line type="step" dataKey="step_length" stroke="#60a5fa" strokeWidth={0} dot={{ r: 2, fill: '#60a5fa' }} name="Stride Length" unit="m" isAnimationActive={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {tsData.some(d => d.vr) && (
+              <div className="bento-card p-6 bg-[var(--apple-card)]">
+                <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Activity size={12} className="text-orange-500" /> Vertical Ratio (%)
+                </div>
+                <div className="h-32">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={tsData} syncId="activityCharts" margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <XAxis dataKey="elapsedStr" hide />
+                      <YAxis domain={['auto', 'auto']} hide />
+                      <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(0,0,0,0.1)', strokeWidth: 1 }} />
+                      <Line type="step" dataKey="vr" stroke="#f97316" strokeWidth={0} dot={{ r: 2, fill: '#f97316' }} name="Vertical Ratio" unit="%" isAnimationActive={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {tsData.some(d => d.gct) && (
+              <div className="bento-card p-6 bg-[var(--apple-card)]">
+                <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Activity size={12} className="text-yellow-500" /> Ground Contact Time (ms)
+                </div>
+                <div className="h-32">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={tsData} syncId="activityCharts" margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <XAxis dataKey="elapsedStr" hide />
+                      <YAxis domain={['auto', 'auto']} hide />
+                      <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(0,0,0,0.1)', strokeWidth: 1 }} />
+                      <Line type="step" dataKey="gct" stroke="#eab308" strokeWidth={0} dot={{ r: 2, fill: '#eab308' }} name="GCT" unit="ms" isAnimationActive={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const widgetContent = (
     <div className={`h-full w-full flex flex-col md:flex-row min-h-0 ${isFullScreen ? 'fixed inset-0 z-[100] bg-[var(--apple-bg)] p-4 md:p-10' : ''}`}>
       {/* Sidebar */}
@@ -424,7 +611,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
                     {activity.activity_name || activity.activity_type.replace(/_/g, ' ')}
                   </div>
                   <div className={`text-[9px] font-bold ${selectedActivity?.activity_id === activity.activity_id ? 'text-white/80' : 'text-tertiary'}`}>
-                    {new Date(activity.start_ts.replace(' ', 'T') + 'Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {(activity.distance / 1000).toFixed(1)}km
+                    {new Date(activity.start_ts.replace(' ', 'T') + 'Z').toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })} • {(activity.distance / 1000).toFixed(1)}km
                   </div>
                 </div>
               </div>
@@ -456,6 +643,14 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
             }`}
           >
             <BarChart3 size={14} /> Stats
+          </button>
+          <button 
+            onClick={() => setMapViewMode('charts')}
+            className={`px-4 py-2 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+              viewMode === 'charts' ? 'bg-blue-500 text-white shadow-lg' : 'text-tertiary hover:text-primary'
+            }`}
+          >
+            <Activity size={14} /> Charts
           </button>
         </div>
 
@@ -520,8 +715,10 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
               </div>
             </div>
           </div>
-        ) : (
+        ) : viewMode === 'stats' ? (
           renderStats()
+        ) : (
+          renderCharts()
         )}
 
         {loadingPath && viewMode === 'map' && (

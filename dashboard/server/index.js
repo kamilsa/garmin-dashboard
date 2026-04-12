@@ -412,7 +412,7 @@ app.get('/api/activities', (req, res) => {
       'lap_swimming', 'open_water_swimming', 'walking', 'cardio', 'strength_training'
     )
     ORDER BY a.start_ts DESC 
-    LIMIT 30
+    LIMIT 500
   `).all();
   res.json(activities);
 });
@@ -427,6 +427,41 @@ app.get('/api/activity/:id/path', (req, res) => {
   } else {
     res.status(404).json({ error: 'Path not found' });
   }
+});
+
+app.get('/api/activity/:id/ts', (req, res) => {
+  const tsData = db.prepare(`
+    SELECT 
+      timestamp,
+      MAX(CASE WHEN name = 'heart_rate' THEN value END) as hr,
+      MAX(CASE WHEN name = 'enhanced_speed' THEN value END) as speed,
+      MAX(CASE WHEN name = 'power' THEN value END) as power,
+      MAX(CASE WHEN name = 'stance_time' THEN value END) as gct,
+      MAX(CASE WHEN name = 'vertical_ratio' THEN value END) as vr,
+      MAX(CASE WHEN name = 'step_length' THEN value END) as step_length
+    FROM activity_ts_metric 
+    WHERE activity_id = ? 
+    GROUP BY timestamp 
+    ORDER BY timestamp ASC
+  `).all(req.params.id);
+
+  const targetPoints = 300;
+  let downsampled = tsData;
+  if (tsData.length > targetPoints) {
+    const step = Math.ceil(tsData.length / targetPoints);
+    downsampled = tsData.filter((_, index) => index % step === 0);
+  }
+
+  const processed = downsampled.map(d => {
+    let pace = null;
+    if (d.speed > 0) {
+      pace = 1000 / (d.speed * 60);
+      if (pace > 20) pace = 20;
+    }
+    return { ...d, pace };
+  });
+
+  res.json(processed);
 });
 
 app.get('/api/biometrics', (req, res) => {

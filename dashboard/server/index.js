@@ -447,6 +447,87 @@ app.get('/api/biometrics', (req, res) => {
   res.json({ vo2, weight });
 });
 
+app.get('/api/fitness-age', (req, res) => {
+  // Garmin fitness age lookup: VO2 Max → fitness age
+  // Source: Based on Garmin Connect / ACSM published norms (male reference)
+  // Entries: [minVO2, maxVO2, fitnessAge]
+  const fitnessAgeMale = [
+    [56.9, Infinity, 20], [54.9, 56.8, 21], [52.9, 54.8, 22], [50.9, 52.8, 23],
+    [49.4, 50.8, 24], [47.9, 49.3, 25], [46.4, 47.8, 26], [44.9, 46.3, 27],
+    [43.4, 44.8, 28], [41.9, 43.3, 29], [40.9, 41.8, 30], [39.9, 40.8, 31],
+    [38.9, 39.8, 32], [37.9, 38.8, 33], [36.9, 37.8, 34], [35.9, 36.8, 35],
+    [34.9, 35.8, 36], [33.9, 34.8, 37], [32.9, 33.8, 38], [31.9, 32.8, 39],
+    [30.9, 31.8, 40], [29.9, 30.8, 41], [28.9, 29.8, 42], [27.9, 28.8, 43],
+    [26.9, 27.8, 44], [25.9, 26.8, 45], [24.9, 25.8, 46], [23.9, 24.8, 47],
+    [22.9, 23.8, 48], [0, 22.8, 49],
+  ];
+  const fitnessAgeFemale = [
+    [52.9, Infinity, 20], [50.9, 52.8, 21], [48.9, 50.8, 22], [46.9, 48.8, 23],
+    [44.9, 46.8, 24], [42.9, 44.8, 25], [41.4, 42.8, 26], [39.9, 41.3, 27],
+    [38.4, 39.8, 28], [36.9, 38.3, 29], [35.9, 36.8, 30], [34.9, 35.8, 31],
+    [33.9, 34.8, 32], [32.9, 33.8, 33], [31.9, 32.8, 34], [30.9, 31.8, 35],
+    [29.9, 30.8, 36], [28.9, 29.8, 37], [27.9, 28.8, 38], [26.9, 27.8, 39],
+    [25.9, 26.8, 40], [24.9, 25.8, 41], [23.9, 24.8, 42], [22.9, 23.8, 43],
+    [21.9, 22.8, 44], [20.9, 21.8, 45], [19.9, 20.8, 46], [18.9, 19.8, 47],
+    [17.9, 18.8, 48], [0, 17.8, 49],
+  ];
+
+  try {
+    const user = db.prepare('SELECT birth_date FROM user LIMIT 1').get();
+    const profile = db.prepare('SELECT gender FROM user_profile WHERE latest = 1 LIMIT 1').get();
+    const vo2Rows = db.prepare(`
+      SELECT date as day, vo2_max_generic as vo2_max 
+      FROM vo2_max 
+      WHERE vo2_max_generic IS NOT NULL 
+      ORDER BY date DESC LIMIT 30
+    `).all();
+
+    if (!user || !vo2Rows.length) {
+      return res.status(404).json({ error: 'Insufficient data' });
+    }
+
+    const currentVO2 = vo2Rows[0].vo2_max;
+    const gender = profile?.gender || 'male';
+    const table = gender === 'female' ? fitnessAgeFemale : fitnessAgeMale;
+
+    const entry = table.find(([min, max]) => currentVO2 >= min && currentVO2 <= max);
+    const fitnessAge = entry ? entry[2] : 49;
+
+    // Real age from birth_date
+    const birthDate = new Date(user.birth_date);
+    const today = new Date();
+    let realAge = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) realAge--;
+
+    const ageDelta = realAge - fitnessAge; // positive = younger fitness age
+
+    // VO2 trend: compare latest vs 30 days ago
+    const oldestVO2 = vo2Rows.length > 1 ? vo2Rows[vo2Rows.length - 1].vo2_max : currentVO2;
+    const trend = currentVO2 - oldestVO2;
+
+    // History for sparkline (fitness age over time)
+    const history = vo2Rows.slice(0, 15).reverse().map(row => {
+      const e = table.find(([min, max]) => row.vo2_max >= min && row.vo2_max <= max);
+      return { day: row.day, fitnessAge: e ? e[2] : 49, vo2Max: row.vo2_max };
+    });
+
+    res.json({
+      fitnessAge,
+      realAge,
+      ageDelta,
+      currentVO2,
+      trend: parseFloat(trend.toFixed(1)),
+      updatedAt: vo2Rows[0].day,
+      history,
+      gender,
+    });
+  } catch (error) {
+    console.error('Fitness age error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
 });

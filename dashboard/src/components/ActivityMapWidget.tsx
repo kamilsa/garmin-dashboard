@@ -263,110 +263,115 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
     const a = selectedActivity;
 
     return (
-      <div className="p-8 pt-24 h-full overflow-y-auto bg-[var(--apple-bg)] transition-colors duration-300">
-        <div className="max-w-4xl mx-auto space-y-10">
-          <div className="flex items-center gap-6">
-            <div className="p-5 bg-blue-500 rounded-[2rem] text-white shadow-2xl hidden lg:block">
+      <div className="p-6 md:p-8 h-full overflow-y-auto bg-[var(--apple-bg)] transition-colors duration-300 custom-scrollbar">
+        <div className="max-w-4xl mx-auto space-y-4">
+          <div className="flex items-center gap-4">
+            <div className="p-4 bg-blue-500 rounded-[1.5rem] text-white shadow-xl hidden lg:block">
               {getActivityIcon(a.activity_type)}
             </div>
             <div>
-              <h2 className="text-4xl font-black text-primary mb-2 tracking-tight">{a.activity_name || a.activity_type.replace(/_/g, ' ')}</h2>
-              <p className="text-tertiary font-bold uppercase tracking-widest text-xs">
-                {new Date(a.start_ts).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
+              <h2 className="text-2xl font-black text-primary mb-1 tracking-tight">{a.activity_name || a.activity_type.replace(/_/g, ' ')}</h2>
+              <p className="text-tertiary font-bold uppercase tracking-widest text-[10px]">
+                {new Date(a.start_ts.replace(' ', 'T') + 'Z').toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bento-card p-8 flex flex-col justify-between bg-[var(--apple-card)] min-h-[160px]">
-              <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
-                <Navigation size={12} className="text-blue-500" /> Distance
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bento-card p-5 flex flex-col justify-between bg-[var(--apple-card)]">
+              <div className="text-tertiary font-black text-[9px] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <Navigation size={10} className="text-blue-500" /> Distance
               </div>
-              <div className="text-4xl font-black text-primary tracking-tighter">{(a.distance / 1000).toFixed(2)} <span className="text-sm font-bold text-tertiary">km</span></div>
+              <div className="text-3xl font-black text-primary tracking-tighter">{(a.distance / 1000).toFixed(2)} <span className="text-xs font-bold text-tertiary">km</span></div>
             </div>
-            <div className="bento-card p-8 flex flex-col justify-between bg-[var(--apple-card)] min-h-[160px]">
-              <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
-                <Timer size={12} className="text-orange-500" /> Time
+            <div className="bento-card p-5 flex flex-col justify-between bg-[var(--apple-card)]">
+              <div className="text-tertiary font-black text-[9px] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <Timer size={10} className="text-orange-500" /> Time
               </div>
-              <div className="text-4xl font-black text-primary tracking-tighter">{formatDuration(a.duration)}</div>
+              <div className="text-3xl font-black text-primary tracking-tighter">
+                {formatDuration(a.duration)} <span className="text-xs font-bold text-tertiary">{a.duration >= 3600 ? 'h:m:s' : 'm:s'}</span>
+              </div>
             </div>
-            <div className="bento-card p-8 flex flex-col justify-between bg-[var(--apple-card)] min-h-[160px]">
-              <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
-                <Heart size={12} className="text-red-500" /> Avg HR
+            <div className="bento-card p-5 flex flex-col justify-between bg-[var(--apple-card)]">
+              <div className="text-tertiary font-black text-[9px] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <Heart size={10} className="text-red-500" /> Avg HR
               </div>
-              <div className="text-4xl font-black text-primary tracking-tighter">{Math.round(a.average_hr) || '--'} <span className="text-sm font-bold text-tertiary">bpm</span></div>
+              <div className="text-3xl font-black text-primary tracking-tighter">{Math.round(a.average_hr) || '--'} <span className="text-xs font-bold text-tertiary">bpm</span></div>
             </div>
-            <div className="bento-card p-8 flex flex-col justify-between bg-[var(--apple-card)] min-h-[160px]">
-              <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
-                <Flame size={12} className="text-yellow-500" /> Calories
+            <div className="bento-card p-5 flex flex-col justify-between bg-[var(--apple-card)]">
+              <div className="text-tertiary font-black text-[9px] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <Flame size={10} className="text-yellow-500" /> Calories
               </div>
-              <div className="text-4xl font-black text-primary tracking-tighter">{Math.round(a.calories)} <span className="text-sm font-bold text-tertiary">kcal</span></div>
+              <div className="text-3xl font-black text-primary tracking-tighter">{Math.round(a.calories)} <span className="text-xs font-bold text-tertiary">kcal</span></div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pb-16">
-            <div className="bento-card p-10 bg-[var(--apple-card)]">
-              <h4 className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-10 flex items-center gap-2 border-b border-black/5 dark:border-white/5 pb-5">
-                <Trophy size={14} className="text-yellow-500" /> Performance Metrics
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
+            <div className="bento-card p-6 bg-[var(--apple-card)]">
+              <h4 className="text-tertiary font-black text-[9px] uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-black/5 dark:border-white/5 pb-3">
+                <Trophy size={12} className="text-yellow-500" /> Performance Metrics
               </h4>
-              <div className="space-y-10">
-                <div className="flex justify-between items-center">
-                  <span className="text-base font-bold text-secondary">Avg Speed / Pace</span>
-                  <span className="text-2xl font-black text-primary">
-                    {a.activity_type.includes('run') ? `${formatPace(a.average_speed)} min/km` : `${(a.average_speed * 3.6).toFixed(1)} km/h`}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center gap-2">
+                  <span className="text-sm font-bold text-secondary truncate">
+                    {a.activity_type.includes('run') ? 'Avg Pace' : 'Avg Speed'}
+                  </span>
+                  <span className="text-lg font-black text-primary shrink-0 text-right">
+                    {a.activity_type.includes('run') ? formatPace(a.average_speed) : (a.average_speed * 3.6).toFixed(1)} <span className="text-xs text-tertiary font-medium">{a.activity_type.includes('run') ? 'min/km' : 'km/h'}</span>
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-base font-bold text-secondary">Max Speed</span>
-                  <span className="text-2xl font-black text-primary">{(a.max_speed * 3.6).toFixed(1)} <span className="text-sm text-tertiary font-medium">km/h</span></span>
+                  <span className="text-sm font-bold text-secondary">Max Speed</span>
+                  <span className="text-lg font-black text-primary">{(a.max_speed * 3.6).toFixed(1)} <span className="text-xs text-tertiary font-medium">km/h</span></span>
                 </div>
                 {(a.avg_running_cadence || a.avg_biking_cadence) && (
                   <div className="flex justify-between items-center">
-                    <span className="text-base font-bold text-secondary">Avg Cadence</span>
-                    <span className="text-2xl font-black text-primary">{Math.round(a.avg_running_cadence || a.avg_biking_cadence)} <span className="text-sm text-tertiary font-medium">rpm</span></span>
+                    <span className="text-sm font-bold text-secondary">Avg Cadence</span>
+                    <span className="text-lg font-black text-primary">{Math.round(a.avg_running_cadence || a.avg_biking_cadence)} <span className="text-xs text-tertiary font-medium">rpm</span></span>
                   </div>
                 )}
                 {a.avg_power > 0 && (
                   <div className="flex justify-between items-center">
-                    <span className="text-base font-bold text-secondary">Avg Power</span>
-                    <span className="text-2xl font-black text-primary">{Math.round(a.avg_power)} <span className="text-sm text-tertiary font-medium">W</span></span>
+                    <span className="text-sm font-bold text-secondary">Avg Power</span>
+                    <span className="text-lg font-black text-primary">{Math.round(a.avg_power)} <span className="text-xs text-tertiary font-medium">W</span></span>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="bento-card p-10 bg-[var(--apple-card)] flex flex-col">
-              <h4 className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-10 flex items-center gap-2 border-b border-black/5 dark:border-white/5 pb-5">
-                <TrendingUp size={14} className="text-green-500" /> Training & Elevation
+            <div className="bento-card p-6 bg-[var(--apple-card)] flex flex-col">
+              <h4 className="text-tertiary font-black text-[9px] uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-black/5 dark:border-white/5 pb-3">
+                <TrendingUp size={12} className="text-green-500" /> 
+                {a.running_elevation_gain > 0 || a.cycling_elevation_gain > 0 ? "Training & Elevation" : "Training Effect"}
               </h4>
-              <div className="space-y-10 flex-1">
+              <div className="space-y-4 flex-1">
                 <div className="flex justify-between items-center">
-                  <span className="text-base font-bold text-secondary">Aerobic TE</span>
-                  <div className="flex items-center gap-5">
-                    <span className="text-2xl font-black text-primary">{(a.aerobic_training_effect || 0).toFixed(1)}</span>
-                    <div className="w-28 bg-black/5 dark:bg-white/10 h-3 rounded-full overflow-hidden">
-                      <div className="bg-blue-500 h-full shadow-[0_0_12px_rgba(59,130,246,0.6)]" style={{ width: `${(a.aerobic_training_effect / 5) * 100}%` }} />
+                  <span className="text-sm font-bold text-secondary">Aerobic TE</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg font-black text-primary">{(a.aerobic_training_effect || 0).toFixed(1)}</span>
+                    <div className="w-20 bg-black/5 dark:bg-white/10 h-2.5 rounded-full overflow-hidden">
+                      <div className="bg-blue-500 h-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" style={{ width: `${(a.aerobic_training_effect / 5) * 100}%` }} />
                     </div>
                   </div>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-base font-bold text-secondary">Anaerobic TE</span>
-                  <div className="flex items-center gap-5">
-                    <span className="text-2xl font-black text-primary">{(a.anaerobic_training_effect || 0).toFixed(1)}</span>
-                    <div className="w-28 bg-black/5 dark:bg-white/10 h-3 rounded-full overflow-hidden">
-                      <div className="bg-purple-500 h-full shadow-[0_0_12px_rgba(168,85,247,0.6)]" style={{ width: `${(a.anaerobic_training_effect / 5) * 100}%` }} />
+                  <span className="text-sm font-bold text-secondary">Anaerobic TE</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg font-black text-primary">{(a.anaerobic_training_effect || 0).toFixed(1)}</span>
+                    <div className="w-20 bg-black/5 dark:bg-white/10 h-2.5 rounded-full overflow-hidden">
+                      <div className="bg-purple-500 h-full shadow-[0_0_8px_rgba(168,85,247,0.5)]" style={{ width: `${(a.anaerobic_training_effect / 5) * 100}%` }} />
                     </div>
                   </div>
                 </div>
                 {(a.running_elevation_gain > 0 || a.cycling_elevation_gain > 0) && (
-                  <div className="flex justify-between items-center pt-2">
-                    <span className="text-base font-bold text-secondary">Elevation Gain</span>
-                    <span className="text-2xl font-black text-primary">{Math.round(a.running_elevation_gain || a.cycling_elevation_gain)} <span className="text-sm text-tertiary font-medium">m</span></span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-secondary">Elevation Gain</span>
+                    <span className="text-lg font-black text-primary">{Math.round(a.running_elevation_gain || a.cycling_elevation_gain)} <span className="text-xs text-tertiary font-medium">m</span></span>
                   </div>
                 )}
               </div>
               {a.training_effect_label && (
-                <div className="mt-10 p-5 bg-blue-500/10 dark:bg-blue-500/20 rounded-[2rem] text-blue-600 dark:text-blue-400 text-center font-black text-sm uppercase tracking-widest border border-blue-500/20 shadow-inner">
+                <div className="mt-4 p-3 bg-blue-500/10 dark:bg-blue-500/20 rounded-2xl text-blue-600 dark:text-blue-400 text-center font-black text-[10px] uppercase tracking-widest border border-blue-500/20">
                   {a.training_effect_label.replace(/_/g, ' ')}
                 </div>
               )}
@@ -419,7 +424,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
                     {activity.activity_name || activity.activity_type.replace(/_/g, ' ')}
                   </div>
                   <div className={`text-[9px] font-bold ${selectedActivity?.activity_id === activity.activity_id ? 'text-white/80' : 'text-tertiary'}`}>
-                    {new Date(activity.start_ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {(activity.distance / 1000).toFixed(1)}km
+                    {new Date(activity.start_ts.replace(' ', 'T') + 'Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {(activity.distance / 1000).toFixed(1)}km
                   </div>
                 </div>
               </div>
@@ -433,7 +438,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
 
       {/* Main Content Area */}
       <div className={`flex-1 relative min-h-0 overflow-hidden flex flex-col ${isFullScreen ? 'bento-card shadow-2xl' : ''}`}>
-        <div className="absolute top-6 right-24 z-20 flex bg-white/90 dark:bg-[#1C1C1E]/90 backdrop-blur-md p-1 rounded-2xl shadow-2xl border border-black/5 dark:border-white/10">
+        <div className="absolute top-6 md:top-8 right-20 md:right-24 z-20 flex bg-white/90 dark:bg-[#1C1C1E]/90 backdrop-blur-md p-1 rounded-2xl shadow-2xl border border-black/5 dark:border-white/10 mt-1 md:mt-2">
           {selectedActivity && isOutdoor(selectedActivity.activity_type) && (
             <button 
               onClick={() => setMapViewMode('map')}
@@ -457,7 +462,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
         {/* Full Screen Toggle */}
         <button 
           onClick={() => setIsFullScreen(!isFullScreen)}
-          className="absolute top-6 right-6 z-20 p-2.5 bg-white/90 dark:bg-[#1C1C1E]/90 backdrop-blur-md rounded-2xl shadow-2xl border border-black/5 dark:border-white/10 text-[#1D1D1F] dark:text-[#F5F5F7] hover:scale-110 transition-all"
+          className="absolute top-6 md:top-8 right-6 z-20 p-2.5 bg-white/90 dark:bg-[#1C1C1E]/90 backdrop-blur-md rounded-2xl shadow-2xl border border-black/5 dark:border-white/10 text-[#1D1D1F] dark:text-[#F5F5F7] hover:scale-110 transition-all mt-1 md:mt-2"
         >
           {isFullScreen ? <Minimize size={18} /> : <Maximize size={18} />}
         </button>
@@ -498,7 +503,9 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
                   </div>
                   <div>
                     <div className="text-[10px] font-black text-tertiary uppercase tracking-widest mb-1">Duration</div>
-                    <div className="text-2xl font-black text-primary">{formatDuration(selectedActivity.duration)}</div>
+                    <div className="text-2xl font-black text-primary">
+                      {formatDuration(selectedActivity.duration)} <span className="text-xs font-bold text-tertiary">{selectedActivity.duration >= 3600 ? 'h:m:s' : 'm:s'}</span>
+                    </div>
                   </div>
                   {(selectedActivity.running_elevation_gain > 0 || selectedActivity.cycling_elevation_gain > 0) && (
                     <div>

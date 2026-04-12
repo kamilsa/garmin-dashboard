@@ -13,6 +13,7 @@ import WellnessWidget from './components/WellnessWidget';
 import BiometricsWidget from './components/BiometricsWidget';
 import ActivityMapWidget from './components/ActivityMapWidget';
 import ChatAssistant from './components/ChatAssistant';
+import FitnessAgeWidget from './components/FitnessAgeWidget';
 
 const API_BASE_URL = 'http://localhost:3001/api';
 
@@ -20,6 +21,7 @@ const App: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [config, setConfig] = useState<{ mapboxToken: string } | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date());
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -47,6 +49,7 @@ const App: React.FC = () => {
     setIsSyncing(true);
     try {
       await axios.post(`${API_BASE_URL}/refresh`);
+      setLastSyncTime(new Date());
       setRefreshKey(prev => prev + 1);
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -65,7 +68,7 @@ const App: React.FC = () => {
             Health Dashboard
           </h1>
           <p className="text-sm text-tertiary font-bold">
-            Saturday, April 11, 2026
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
           </p>
         </div>
         <div className="flex gap-3">
@@ -114,8 +117,12 @@ const App: React.FC = () => {
           <SleepWidget key={`sleep-${refreshKey}`} />
         </div>
 
-        <div className="md:col-span-2 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden text-primary">
+        <div className="md:col-span-1 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden text-primary">
           <BiometricsWidget key={`biometrics-${refreshKey}`} />
+        </div>
+
+        <div className="md:col-span-1 md:row-span-1 bento-card p-4 flex flex-col overflow-hidden text-primary">
+          <FitnessAgeWidget key={`fitnessage-${refreshKey}`} />
         </div>
 
       </main>
@@ -127,7 +134,7 @@ const App: React.FC = () => {
       <footer className="max-w-7xl w-full mx-auto mt-4 py-3 border-t border-black/5 dark:border-white/10 flex flex-col md:flex-row justify-between items-center gap-2 text-[10px] text-tertiary font-medium shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]"></div>
-          Sync successful: 2 mins ago
+          Sync successful: Today at {lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </div>
         <div>
           Powered by Garmin Health Data & Mapbox

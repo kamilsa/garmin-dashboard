@@ -43,6 +43,11 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<mapboxgl.Map | null>(null);
+  const selectedActivityRef = useRef<any>(selectedActivity);
+
+  useEffect(() => {
+    selectedActivityRef.current = selectedActivity;
+  }, [selectedActivity]);
 
   useEffect(() => {
     // Force a resize when entering/exiting full screen to fix map dimensions
@@ -166,8 +171,9 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
 
     m.on('style.load', () => {
       setupMapExtras(m);
-      if (selectedActivity && isOutdoor(selectedActivity.activity_type)) {
-        updateMapPath(selectedActivity.activity_id);
+      const latestActivity = selectedActivityRef.current;
+      if (latestActivity && isOutdoor(latestActivity.activity_type)) {
+        updateMapPath(latestActivity.activity_id);
       }
     });
 
@@ -666,26 +672,16 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
           <div className="h-full w-full relative">
             <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
             
-            <div className="absolute top-6 left-6 flex gap-2 z-20">
+            <div className="absolute top-6 md:top-8 left-6 z-20 mt-1 md:mt-2">
               <button 
-                onClick={() => setMapStyle('outdoors')}
-                className={`p-3 rounded-2xl shadow-xl border border-black/5 dark:border-white/10 transition-all flex items-center gap-2 font-black text-[10px] uppercase tracking-widest backdrop-blur-md ${
-                  mapStyle === 'outdoors' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-white/90 dark:bg-[#1C1C1E]/90 text-[#1D1D1F] dark:text-[#F5F5F7] hover:bg-white dark:hover:bg-[#1C1C1E]'
-                }`}
+                onClick={() => setMapStyle(mapStyle === 'outdoors' ? 'satellite' : 'outdoors')}
+                className="px-4 py-2.5 rounded-2xl shadow-2xl border border-black/5 dark:border-white/10 transition-all flex items-center gap-2 font-black text-[10px] uppercase tracking-widest backdrop-blur-md bg-white/90 dark:bg-[#1C1C1E]/90 text-[#1D1D1F] dark:text-[#F5F5F7] hover:bg-white dark:hover:bg-[#1C1C1E]"
               >
-                <MapTypeIcon size={16} /> Outdoors
-              </button>
-              <button 
-                onClick={() => setMapStyle('satellite')}
-                className={`p-3 rounded-2xl shadow-xl border border-black/5 dark:border-white/10 transition-all flex items-center gap-2 font-black text-[10px] uppercase tracking-widest backdrop-blur-md ${
-                  mapStyle === 'satellite' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-white/90 dark:bg-[#1C1C1E]/90 text-[#1D1D1F] dark:text-[#F5F5F7] hover:bg-white dark:hover:bg-[#1C1C1E]'
-                }`}
-              >
-                <Globe size={16} /> Satellite
+                {mapStyle === 'outdoors' ? (
+                  <><Globe size={16} className="text-blue-500" /> Satellite</>
+                ) : (
+                  <><MapTypeIcon size={16} className="text-blue-500" /> Outdoors</>
+                )}
               </button>
             </div>
 

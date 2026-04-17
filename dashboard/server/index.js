@@ -4,6 +4,8 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
+const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
 
 const app = express();
 const port = 3001;
@@ -13,6 +15,72 @@ app.use(express.json());
 
 const dbPath = path.join(__dirname, '../../garmin_data.db');
 const db = new Database(dbPath, { verbose: console.log });
+
+// ---- MCP Client Connection ----
+let mcpClient = null;
+let mcpTools = [];
+let mcpConnected = false;
+
+async function connectMCP() {
+  try {
+    const transport = new StdioClientTransport({
+      command: 'node',
+      args: [path.join(__dirname, 'mcp-server.js')],
+    });
+
+    mcpClient = new Client({
+      name: 'garmin-dashboard-server',
+      version: '1.0.0',
+    });
+
+    await mcpClient.connect(transport);
+    mcpConnected = true;
+    console.log('Connected to Garmin Health MCP Server');
+
+    // Fetch available tools from MCP server
+    const toolsResult = await mcpClient.listTools();
+    mcpTools = toolsResult.tools.map(t => ({
+      type: 'function',
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.inputSchema,
+      },
+    }));
+    console.log('MCP tools loaded:', mcpTools.map(t => t.function.name));
+  } catch (err) {
+    console.error('Failed to connect to MCP server, falling back to direct SQLite tools:', err.message);
+    mcpConnected = false;
+  }
+}
+
+// Initialize MCP connection on startup
+connectMCP();
+
+// ---- Conversation Memory (SQLite-backed) ----
+// Create memory table if not exists
+db.exec(`
+  CREATE TABLE IF NOT EXISTS chat_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+function getMemoryMessages(limit = 50) {
+  return db.prepare(
+    'SELECT role, content FROM chat_memory ORDER BY id DESC LIMIT ?'
+  ).all(limit).reverse();
+}
+
+function saveMemoryMessage(role, content) {
+  db.prepare('INSERT INTO chat_memory (role, content) VALUES (?, ?)').run(role, content);
+}
+
+function clearMemory() {
+  db.prepare('DELETE FROM chat_memory').run();
+}
 
 // Ollama configuration (direct connection, bypassing LiteLLM which strips tool_calls)
 const OLLAMA_URL = 'http://localhost:11434';
@@ -63,10 +131,10 @@ try {
   console.error('Error reading mapbox_token:', err);
 }
 
-// ---- Direct SQLite Tool Implementation (replaces MCP server-sqlite) ----
-// Execute a read-only SQL query against the Garmin database
+// ---- Tool Handling (MCP-first with fallback to direct SQLite) ----
+
+// Fallback direct SQLite tools (used when MCP is unavailable)
 function executeReadQuery(sql) {
-  // Security: only allow SELECT statements
   const trimmed = sql.trim().toUpperCase();
   if (!trimmed.startsWith('SELECT')) {
     return { error: 'Only SELECT queries are allowed.' };
@@ -79,7 +147,6 @@ function executeReadQuery(sql) {
   }
 }
 
-// Get the database schema
 function getSchema() {
   try {
     const tables = db.prepare(
@@ -101,8 +168,8 @@ function getSchema() {
   }
 }
 
-// Tool definitions exposed to the LLM (Ollama format)
-const ollamaTools = [
+// Fallback tool definitions (Ollama format) for when MCP is not connected
+const fallbackTools = [
   {
     type: 'function',
     function: {
@@ -134,8 +201,28 @@ const ollamaTools = [
   }
 ];
 
-// Dispatch a tool call to the appropriate handler
-function handleToolCall(name, args) {
+// Get the active tools (MCP or fallback)
+function getActiveTools() {
+  return mcpConnected && mcpTools.length > 0 ? mcpTools : fallbackTools;
+}
+
+// Dispatch a tool call — uses MCP if connected, falls back to direct SQLite
+async function handleToolCall(name, args) {
+  if (mcpConnected && mcpClient) {
+    try {
+      const result = await mcpClient.callTool({ name, arguments: args });
+      // MCP returns content array; extract text
+      const textContent = result.content
+        .filter(c => c.type === 'text')
+        .map(c => c.text)
+        .join('\n');
+      return JSON.parse(textContent);
+    } catch (err) {
+      console.error(`MCP tool call failed for ${name}, falling back:`, err.message);
+      // Fall through to direct implementation
+    }
+  }
+  // Fallback: direct SQLite
   switch (name) {
     case 'read_query':
       return executeReadQuery(args.query);
@@ -146,7 +233,7 @@ function handleToolCall(name, args) {
   }
 }
 
-console.log('SQLite tools ready (direct integration, no MCP subprocess)');
+console.log(`Tools ready (${mcpConnected ? 'MCP server' : 'direct SQLite fallback'})`);
 
 app.get('/api/config', (req, res) => {
   res.json({ mapboxToken });
@@ -191,9 +278,9 @@ app.post('/api/refresh', (req, res) => {
   });
 });
 
-// AI Assistant Endpoint (Ollama direct + SQLite tools)
+// AI Assistant Endpoint (Ollama direct + MCP/SQLite tools + Memory)
 app.post('/api/chat', async (req, res) => {
-  const { messages, model: requestedModel } = req.body;
+  const { messages, model: requestedModel, memoryEnabled } = req.body;
   const model = requestedModel || DEFAULT_MODEL;
 
   // Setup abort controller mapped to the client request
@@ -248,16 +335,29 @@ Guidelines:
 `;
 
   try {
+    // Build message list: system prompt + memory (if enabled) + current conversation
     let currentMessages = [
       { role: 'system', content: systemPrompt },
-      ...messages.map(m => ({
-        role: m.role,
-        content: m.content
-      }))
     ];
 
+    // Prepend memory messages if memory is enabled
+    if (memoryEnabled) {
+      const memoryMsgs = getMemoryMessages(50);
+      if (memoryMsgs.length > 0) {
+        currentMessages.push({
+          role: 'system',
+          content: `[Conversation Memory — previous messages from this session and earlier sessions. Use this context to maintain continuity.]\n${memoryMsgs.map(m => `${m.role}: ${m.content}`).join('\n')}`,
+        });
+      }
+    }
+
+    currentMessages.push(...messages.map(m => ({
+      role: m.role,
+      content: m.content
+    })));
+
     // 1. Initial call to LLM via Ollama
-    let result = await ollamaChat(model, currentMessages, ollamaTools, ac.signal);
+    let result = await ollamaChat(model, currentMessages, getActiveTools(), ac.signal);
     let assistantMsg = result.message;
 
     // 2. Handle Tool Calls (supports multiple rounds)
@@ -277,7 +377,7 @@ Guidelines:
         
         console.log(`Executing Tool: ${toolName}`, toolArgs);
         
-        const toolResult = handleToolCall(toolName, toolArgs);
+        const toolResult = await handleToolCall(toolName, toolArgs);
         
         // Ollama expects tool results in this format
         currentMessages.push({
@@ -287,12 +387,20 @@ Guidelines:
       }
 
       // 3. Follow-up call to model with tool results
-      result = await ollamaChat(model, currentMessages, ollamaTools, ac.signal);
+      result = await ollamaChat(model, currentMessages, getActiveTools(), ac.signal);
       assistantMsg = result.message;
     }
 
     if (ac.signal.aborted) {
       return res.status(499).json({ error: 'Client Closed Request' });
+    }
+
+    // Save messages to memory if memory is enabled
+    if (memoryEnabled) {
+      for (const m of messages) {
+        saveMemoryMessage(m.role, m.content);
+      }
+      saveMemoryMessage('assistant', assistantMsg.content || '');
     }
 
     res.json({ role: 'assistant', content: assistantMsg.content || '(No response from the model)' });
@@ -561,6 +669,37 @@ app.get('/api/fitness-age', (req, res) => {
     console.error('Fitness age error:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// ---- Memory API Endpoints ----
+
+// Get memory status and recent messages
+app.get('/api/chat/memory', (req, res) => {
+  try {
+    const messages = getMemoryMessages(50);
+    res.json({ enabled: true, messageCount: messages.length, messages });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Clear all conversation memory
+app.delete('/api/chat/memory', (req, res) => {
+  try {
+    clearMemory();
+    res.json({ success: true, message: 'Memory cleared' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get MCP server status
+app.get('/api/chat/mcp-status', (req, res) => {
+  res.json({
+    connected: mcpConnected,
+    tools: mcpConnected ? mcpTools.map(t => t.function.name) : fallbackTools.map(t => t.function.name),
+    source: mcpConnected ? 'mcp' : 'direct-sqlite',
+  });
 });
 
 app.listen(port, () => {

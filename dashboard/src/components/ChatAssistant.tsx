@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { MessageSquare, Send, X, Bot, User, Loader2, ChevronDown, Square, Maximize2, Minimize2 } from 'lucide-react';
+import { MessageSquare, Send, X, Bot, User, Loader2, ChevronDown, Square, Maximize2, Minimize2, Brain, Trash2, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const API_BASE_URL = 'http://localhost:3001/api';
@@ -29,6 +29,10 @@ const ChatAssistant: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [memoryEnabled, setMemoryEnabled] = useState(false);
+  const [memoryCount, setMemoryCount] = useState(0);
+  const [mcpConnected, setMcpConnected] = useState(false);
+  const [showMemoryConfirm, setShowMemoryConfirm] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -61,6 +65,25 @@ const ChatAssistant: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Fetch memory status and MCP status
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const [memResp, mcpResp] = await Promise.all([
+          axios.get(`${API_BASE_URL}/chat/memory`),
+          axios.get(`${API_BASE_URL}/chat/mcp-status`),
+        ]);
+        setMemoryCount(memResp.data.messageCount || 0);
+        setMcpConnected(mcpResp.data.connected || false);
+      } catch {
+        // Server may not have these endpoints yet
+      }
+    };
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Close model picker on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -90,6 +113,7 @@ const ChatAssistant: React.FC = () => {
       const response = await axios.post(`${API_BASE_URL}/chat`, {
         messages: newMessages,
         model: selectedModel,
+        memoryEnabled,
       }, {
         signal: abortController.signal
       });
@@ -99,6 +123,11 @@ const ChatAssistant: React.FC = () => {
         content: response.data.content
       };
       setMessages([...newMessages, assistantMessage]);
+      
+      // Update memory count if memory is enabled
+      if (memoryEnabled) {
+        setMemoryCount(prev => prev + newMessages.length + 1);
+      }
     } catch (error) {
       if (axios.isCancel(error)) {
         console.log('Request canceled', error.message);
@@ -119,6 +148,16 @@ const ChatAssistant: React.FC = () => {
   const handleStop = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
+    }
+  };
+
+  const handleClearMemory = async () => {
+    try {
+      await axios.delete(`${API_BASE_URL}/chat/memory`);
+      setMemoryCount(0);
+      setShowMemoryConfirm(false);
+    } catch (err) {
+      console.error('Failed to clear memory:', err);
     }
   };
 
@@ -173,10 +212,44 @@ const ChatAssistant: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-sm font-black text-[#1D1D1F] dark:text-[#F5F5F7] leading-tight">Health Assistant</h3>
-                  <p className={`text-[10px] font-bold uppercase tracking-widest ${llmStatus === 'online' ? 'text-green-500' : llmStatus === 'offline' ? 'text-red-400' : 'text-yellow-500'}`}>Local LLM • {llmStatus === 'checking' ? 'Connecting…' : llmStatus === 'online' ? 'Online' : 'Offline'}</p>
+                  <div className="flex items-center gap-2">
+                    <p className={`text-[10px] font-bold uppercase tracking-widest ${llmStatus === 'online' ? 'text-green-500' : llmStatus === 'offline' ? 'text-red-400' : 'text-yellow-500'}`}>Local LLM • {llmStatus === 'checking' ? 'Connecting…' : llmStatus === 'online' ? 'Online' : 'Offline'}</p>
+                    <span className="text-[8px] text-tertiary">•</span>
+                    <div className="flex items-center gap-1">
+                      <Database size={8} className={mcpConnected ? 'text-green-500' : 'text-yellow-500'} />
+                      <span className={`text-[9px] font-bold ${mcpConnected ? 'text-green-500' : 'text-yellow-500'}`}>MCP</span>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                {/* Memory Toggle */}
+                <div className="flex items-center gap-1 mr-1">
+                  <button
+                    onClick={() => setMemoryEnabled(!memoryEnabled)}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                      memoryEnabled
+                        ? 'bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30'
+                        : 'bg-black/5 dark:bg-white/5 text-tertiary border border-transparent hover:bg-black/10 dark:hover:bg-white/10'
+                    }`}
+                    title={memoryEnabled ? 'Memory enabled — assistant remembers past conversations' : 'Memory disabled — assistant only uses current conversation'}
+                  >
+                    <Brain size={12} />
+                    <span>Memory</span>
+                    {memoryEnabled && memoryCount > 0 && (
+                      <span className="bg-purple-500 text-white rounded-full px-1 min-w-[14px] text-center text-[8px]">{memoryCount > 99 ? '99+' : memoryCount}</span>
+                    )}
+                  </button>
+                  {memoryEnabled && memoryCount > 0 && (
+                    <button
+                      onClick={() => setShowMemoryConfirm(true)}
+                      className="p-1 hover:bg-red-500/10 rounded-lg text-tertiary hover:text-red-500 transition-colors"
+                      title="Clear conversation memory"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  )}
+                </div>
                 <button
                   onClick={() => setIsExpanded(e => !e)}
                   className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full text-[#86868B] transition-colors"
@@ -192,6 +265,36 @@ const ChatAssistant: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {/* Memory Clear Confirmation */}
+            <AnimatePresence>
+              {showMemoryConfirm && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden border-b border-black/5 dark:border-white/5"
+                >
+                  <div className="px-4 py-3 bg-red-500/5 flex items-center justify-between">
+                    <p className="text-[11px] font-bold text-red-500">Clear all conversation memory?</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setShowMemoryConfirm(false)}
+                        className="px-2 py-1 text-[10px] font-bold bg-black/5 dark:bg-white/5 rounded-lg text-tertiary hover:bg-black/10 dark:hover:bg-white/10"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleClearMemory}
+                        className="px-2 py-1 text-[10px] font-bold bg-red-500 text-white rounded-lg hover:bg-red-600"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Model Picker */}
             {models.length > 0 && (
@@ -258,6 +361,20 @@ const ChatAssistant: React.FC = () => {
                   <p className="text-[11px] text-tertiary mt-2">
                     Try: "What was my average sleep score this week?" or "How many steps did I do yesterday?"
                   </p>
+                  <div className="flex items-center gap-3 mt-4">
+                    {mcpConnected && (
+                      <div className="flex items-center gap-1 px-2 py-1 bg-green-500/10 rounded-lg">
+                        <Database size={10} className="text-green-500" />
+                        <span className="text-[9px] font-bold text-green-600 dark:text-green-400">MCP Connected</span>
+                      </div>
+                    )}
+                    {memoryEnabled && (
+                      <div className="flex items-center gap-1 px-2 py-1 bg-purple-500/10 rounded-lg">
+                        <Brain size={10} className="text-purple-500" />
+                        <span className="text-[9px] font-bold text-purple-600 dark:text-purple-400">Memory On</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
               {messages.map((msg, i) => (

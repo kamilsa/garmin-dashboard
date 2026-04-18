@@ -31,6 +31,7 @@ const ChatAssistant: React.FC = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [memoryEnabled, setMemoryEnabled] = useState(false);
   const [memoryCount, setMemoryCount] = useState(0);
+  const [mcpEnabled, setMcpEnabled] = useState(true);
   const [mcpConnected, setMcpConnected] = useState(false);
   const [showMemoryConfirm, setShowMemoryConfirm] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -114,6 +115,7 @@ const ChatAssistant: React.FC = () => {
         messages: newMessages,
         model: selectedModel,
         memoryEnabled,
+        mcpEnabled,
       }, {
         signal: abortController.signal
       });
@@ -172,7 +174,7 @@ const ChatAssistant: React.FC = () => {
   };
 
   return (
-    <div className={`fixed z-[100] ${isExpanded ? 'inset-0' : 'bottom-6 right-6'}`}>
+    <div className={`fixed z-[100] pointer-events-none ${isExpanded ? 'inset-0' : 'bottom-6 right-6'}`}>
       {/* Backdrop for expanded mode */}
       <AnimatePresence>
         {isExpanded && isOpen && (
@@ -181,14 +183,14 @@ const ChatAssistant: React.FC = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+            className="absolute inset-0 pointer-events-auto bg-black/30 backdrop-blur-sm"
             onClick={() => setIsExpanded(false)}
           />
         )}
       </AnimatePresence>
 
       {/* Chat panel wrapper — positions differ for compact vs expanded */}
-      <div className={isExpanded ? 'absolute inset-0 flex items-center justify-center p-6 pointer-events-none' : 'flex flex-col items-end'}>
+      <div className={isExpanded ? 'absolute inset-0 flex items-center justify-center p-6 pointer-events-none' : 'flex flex-col items-end pointer-events-none'}>
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -223,7 +225,7 @@ const ChatAssistant: React.FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-1">
-                {/* Memory Toggle */}
+                {/* Memory + MCP Toggles */}
                 <div className="flex items-center gap-1 mr-1">
                   <button
                     onClick={() => setMemoryEnabled(!memoryEnabled)}
@@ -249,6 +251,19 @@ const ChatAssistant: React.FC = () => {
                       <Trash2 size={11} />
                     </button>
                   )}
+                  <button
+                    onClick={() => setMcpEnabled(!mcpEnabled)}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                      mcpEnabled
+                        ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                        : 'bg-black/5 dark:bg-white/5 text-tertiary border border-transparent hover:bg-black/10 dark:hover:bg-white/10'
+                    }`}
+                    title={mcpEnabled ? 'MCP enabled — assistant may use MCP tools when available' : 'MCP disabled — assistant uses direct SQLite fallback tools only'}
+                  >
+                    <Database size={12} />
+                    <span>MCP</span>
+                    <span className="text-[8px] uppercase tracking-wide">{mcpEnabled ? 'On' : 'Off'}</span>
+                  </button>
                 </div>
                 <button
                   onClick={() => setIsExpanded(e => !e)}
@@ -362,12 +377,16 @@ const ChatAssistant: React.FC = () => {
                     Try: "What was my average sleep score this week?" or "How many steps did I do yesterday?"
                   </p>
                   <div className="flex items-center gap-3 mt-4">
-                    {mcpConnected && (
-                      <div className="flex items-center gap-1 px-2 py-1 bg-green-500/10 rounded-lg">
-                        <Database size={10} className="text-green-500" />
-                        <span className="text-[9px] font-bold text-green-600 dark:text-green-400">MCP Connected</span>
-                      </div>
-                    )}
+                    <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${mcpConnected ? 'bg-green-500/10' : 'bg-yellow-500/10'}`}>
+                      <Database size={10} className={mcpConnected ? 'text-green-500' : 'text-yellow-500'} />
+                      <span className={`text-[9px] font-bold ${mcpConnected ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                        MCP {mcpConnected ? 'Available' : 'Unavailable'}
+                      </span>
+                    </div>
+                    <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${mcpEnabled ? 'bg-emerald-500/10' : 'bg-black/5 dark:bg-white/5'}`}>
+                      <Database size={10} className={mcpEnabled ? 'text-emerald-500' : 'text-tertiary'} />
+                      <span className={`text-[9px] font-bold ${mcpEnabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-tertiary'}`}>MCP {mcpEnabled ? 'On' : 'Off'}</span>
+                    </div>
                     {memoryEnabled && (
                       <div className="flex items-center gap-1 px-2 py-1 bg-purple-500/10 rounded-lg">
                         <Brain size={10} className="text-purple-500" />
@@ -474,7 +493,7 @@ const ChatAssistant: React.FC = () => {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={() => setIsOpen(!isOpen)}
-          className="p-4 bg-blue-500 text-white rounded-full shadow-2xl shadow-blue-500/40 border-4 border-white dark:border-[#1C1C1E] relative group"
+          className="pointer-events-auto p-4 bg-blue-500 text-white rounded-full shadow-2xl shadow-blue-500/40 border-4 border-white dark:border-[#1C1C1E] relative group"
         >
           <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white dark:border-[#1C1C1E] z-10 ${llmStatus === 'online' ? 'bg-green-500' : llmStatus === 'offline' ? 'bg-red-400' : 'bg-yellow-500 animate-pulse'}`} />
           {isOpen ? <X size={24} /> : <MessageSquare size={24} />}

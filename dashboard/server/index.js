@@ -84,9 +84,31 @@ db.exec(`
     confidence TEXT,
     raw_analysis TEXT,
     image_thumbnail TEXT,
+    image_data TEXT,
+    model_used TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
+
+const foodLogColumns = db.prepare("PRAGMA table_info('food_log')").all();
+if (!foodLogColumns.some(column => column.name === 'image_data')) {
+  db.exec('ALTER TABLE food_log ADD COLUMN image_data TEXT');
+}
+if (!foodLogColumns.some(column => column.name === 'model_used')) {
+  db.exec('ALTER TABLE food_log ADD COLUMN model_used TEXT');
+}
+
+const FOOD_LOG_SELECT_COLUMNS = 'id, food_name, description, calories, protein_g, carbs_g, fat_g, fiber_g, serving_description, confidence, raw_analysis, image_thumbnail, model_used, created_at';
+const FOOD_LOG_SELECT_COLUMNS_WITH_IMAGE = `${FOOD_LOG_SELECT_COLUMNS}, image_data`;
+const getFoodLogSelectColumns = (includeImageData = false) => includeImageData ? FOOD_LOG_SELECT_COLUMNS_WITH_IMAGE : FOOD_LOG_SELECT_COLUMNS;
+const getFoodEntryById = (id, includeImageData = false) => db.prepare(`SELECT ${getFoodLogSelectColumns(includeImageData)} FROM food_log WHERE id = ?`).get(id);
+const getFoodEntries = (days, limit) => db.prepare(`
+  SELECT ${FOOD_LOG_SELECT_COLUMNS}
+  FROM food_log
+  WHERE created_at >= datetime('now', ? || ' days')
+  ORDER BY created_at DESC
+  LIMIT ?
+`).all(-days, limit);
 
 function getMemoryMessages(limit = 50) {
   return db.prepare(
@@ -243,13 +265,16 @@ const fallbackTools = [
 ];
 
 // Get the active tools (MCP or fallback)
-function getActiveTools() {
+function getActiveTools(mcpEnabled = true) {
+  if (!mcpEnabled) {
+    return fallbackTools;
+  }
   return mcpConnected && mcpTools.length > 0 ? mcpTools : fallbackTools;
 }
 
 // Dispatch a tool call — uses MCP if connected, falls back to direct SQLite
-async function handleToolCall(name, args) {
-  if (mcpConnected && mcpClient) {
+async function handleToolCall(name, args, mcpEnabled = true) {
+  if (mcpEnabled && mcpConnected && mcpClient) {
     try {
       const result = await mcpClient.callTool({ name, arguments: args });
       // MCP returns content array; extract text
@@ -367,7 +392,12 @@ app.post('/api/refresh', (req, res) => {
 
 // AI Assistant Endpoint (Ollama direct + MCP/SQLite tools + Memory)
 app.post('/api/chat', async (req, res) => {
-  const { messages, model: requestedModel, memoryEnabled } = req.body;
+  const {
+    messages,
+    model: requestedModel,
+    memoryEnabled,
+    mcpEnabled = true,
+  } = req.body;
   const model = requestedModel || DEFAULT_MODEL;
 
   // Setup abort controller mapped to the client request
@@ -445,7 +475,7 @@ Guidelines:
     })));
 
     // 1. Initial call to LLM via Ollama
-    let result = await ollamaChat(model, currentMessages, getActiveTools(), ac.signal);
+    let result = await ollamaChat(model, currentMessages, getActiveTools(mcpEnabled), ac.signal);
     let assistantMsg = result.message;
 
     // 2. Handle Tool Calls (supports multiple rounds)
@@ -465,7 +495,7 @@ Guidelines:
         
         console.log(`Executing Tool: ${toolName}`, toolArgs);
         
-        const toolResult = await handleToolCall(toolName, toolArgs);
+        const toolResult = await handleToolCall(toolName, toolArgs, mcpEnabled);
         
         // Ollama expects tool results in this format
         currentMessages.push({
@@ -475,7 +505,7 @@ Guidelines:
       }
 
       // 3. Follow-up call to model with tool results
-      result = await ollamaChat(model, currentMessages, getActiveTools(), ac.signal);
+      result = await ollamaChat(model, currentMessages, getActiveTools(mcpEnabled), ac.signal);
       assistantMsg = result.message;
     }
 
@@ -794,14 +824,28 @@ app.get('/api/chat/mcp-status', (req, res) => {
 
 // Analyze a food image using an Ollama vision model and store the result
 app.post('/api/food/analyze', async (req, res) => {
-  const { image, model, thumbnail } = req.body;
+  const { image, model, thumbnail, entryId } = req.body;
 
-  if (!image || !model) {
-    return res.status(400).json({ error: 'image and model are required' });
+  if (!image && !entryId) {
+    return res.status(400).json({ error: 'image is required' });
+  }
+  if (!model) {
+    return res.status(400).json({ error: 'model is required' });
+  }
+
+  let sourceImage = image;
+  let existingEntry = null;
+  if (!sourceImage && entryId) {
+    existingEntry = getFoodEntryById(entryId, true);
+    sourceImage = existingEntry?.image_data || null;
+  }
+
+  if (!sourceImage) {
+    return res.status(400).json({ error: 'Original image is not available for reanalysis' });
   }
 
   // Guard against very large payloads (~10MB base64)
-  if (image.length > 10 * 1024 * 1024) {
+  if (sourceImage.length > 10 * 1024 * 1024) {
     return res.status(413).json({ error: 'Image too large, maximum 10MB' });
   }
 
@@ -812,7 +856,7 @@ app.post('/api/food/analyze', async (req, res) => {
     const messages = [{
       role: 'user',
       content: FOOD_ANALYSIS_PROMPT,
-      images: [image],
+      images: [sourceImage],
     }];
 
     const result = await ollamaChat(model, messages, null, ac.signal);
@@ -838,9 +882,39 @@ app.post('/api/food/analyze', async (req, res) => {
       };
     }
 
+    if (entryId) {
+      const targetEntry = existingEntry || getFoodEntryById(entryId, true);
+      if (!targetEntry) {
+        return res.status(404).json({ error: 'Food entry not found' });
+      }
+
+      db.prepare(`
+        UPDATE food_log
+        SET food_name = ?, description = ?, calories = ?, protein_g = ?, carbs_g = ?, fat_g = ?, fiber_g = ?, serving_description = ?, confidence = ?, raw_analysis = ?, image_thumbnail = ?, image_data = ?, model_used = ?
+        WHERE id = ?
+      `).run(
+        nutritionData.food_name || 'Unknown food',
+        nutritionData.description || null,
+        nutritionData.calories != null ? Number(nutritionData.calories) : null,
+        nutritionData.protein_g != null ? Number(nutritionData.protein_g) : null,
+        nutritionData.carbs_g != null ? Number(nutritionData.carbs_g) : null,
+        nutritionData.fat_g != null ? Number(nutritionData.fat_g) : null,
+        nutritionData.fiber_g != null ? Number(nutritionData.fiber_g) : null,
+        nutritionData.serving_description || null,
+        nutritionData.confidence || 'low',
+        rawText,
+        thumbnail || targetEntry.image_thumbnail || null,
+        sourceImage,
+        model,
+        entryId
+      );
+
+      return res.json(getFoodEntryById(entryId, true));
+    }
+
     const stmt = db.prepare(`
-      INSERT INTO food_log (food_name, description, calories, protein_g, carbs_g, fat_g, fiber_g, serving_description, confidence, raw_analysis, image_thumbnail)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO food_log (food_name, description, calories, protein_g, carbs_g, fat_g, fiber_g, serving_description, confidence, raw_analysis, image_thumbnail, image_data, model_used)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       nutritionData.food_name || 'Unknown food',
@@ -853,10 +927,13 @@ app.post('/api/food/analyze', async (req, res) => {
       nutritionData.serving_description || null,
       nutritionData.confidence || 'low',
       rawText,
-      thumbnail || null
+      thumbnail || null,
+      sourceImage,
+      model
     );
 
-    const entry = db.prepare('SELECT * FROM food_log WHERE id = ?').get(info.lastInsertRowid);
+    db.prepare('UPDATE food_log SET model_used = ? WHERE id = ?').run(model, info.lastInsertRowid);
+    const entry = getFoodEntryById(info.lastInsertRowid, true);
     res.json(entry);
   } catch (err) {
     if (err.name === 'AbortError') return res.status(499).json({ error: 'Request cancelled' });
@@ -871,12 +948,7 @@ app.get('/api/food', (req, res) => {
     const days = parseInt(req.query.days) || 7;
     const limit = parseInt(req.query.limit) || 50;
 
-    const entries = db.prepare(`
-      SELECT * FROM food_log
-      WHERE created_at >= datetime('now', ? || ' days')
-      ORDER BY created_at DESC
-      LIMIT ?
-    `).all(-days, limit);
+    const entries = getFoodEntries(days, limit);
 
     const totals = db.prepare(`
       SELECT date(created_at) as day,
@@ -900,7 +972,7 @@ app.get('/api/food', (req, res) => {
 // Update a food log entry
 app.patch('/api/food/:id', (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM food_log WHERE id = ?').get(req.params.id);
+    const existing = getFoodEntryById(req.params.id, true);
     if (!existing) {
       return res.status(404).json({ error: 'Food entry not found' });
     }
@@ -952,6 +1024,9 @@ app.patch('/api/food/:id', (req, res) => {
       fiber_g: existing.fiber_g,
       serving_description: existing.serving_description,
       confidence: existing.confidence,
+      image_data: existing.image_data,
+      image_thumbnail: existing.image_thumbnail,
+      raw_analysis: existing.raw_analysis,
     };
 
     if (payloadKeys.includes('food_name')) {
@@ -1000,7 +1075,7 @@ app.patch('/api/food/:id', (req, res) => {
 
     db.prepare(`
       UPDATE food_log
-      SET food_name = ?, description = ?, calories = ?, protein_g = ?, carbs_g = ?, fat_g = ?, fiber_g = ?, serving_description = ?, confidence = ?
+      SET food_name = ?, description = ?, calories = ?, protein_g = ?, carbs_g = ?, fat_g = ?, fiber_g = ?, serving_description = ?, confidence = ?, image_data = ?, image_thumbnail = ?, raw_analysis = ?
       WHERE id = ?
     `).run(
       next.food_name,
@@ -1012,17 +1087,32 @@ app.patch('/api/food/:id', (req, res) => {
       next.fiber_g,
       next.serving_description,
       next.confidence,
+      next.image_data,
+      next.image_thumbnail,
+      next.raw_analysis,
       req.params.id
     );
 
-    const updated = db.prepare('SELECT * FROM food_log WHERE id = ?').get(req.params.id);
+    const updated = getFoodEntryById(req.params.id, true);
     res.json(updated);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-// Delete a food log entry
+// Get a food log entry
+app.get('/api/food/:id', (req, res) => {
+  try {
+    const entry = getFoodEntryById(req.params.id, true);
+    if (!entry) {
+      return res.status(404).json({ error: 'Food entry not found' });
+    }
+    res.json(entry);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/food/:id', (req, res) => {
   try {
     const info = db.prepare('DELETE FROM food_log WHERE id = ?').run(req.params.id);

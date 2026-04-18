@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
-import { Upload, X, Loader2, ChevronDown, Trash2, UtensilsCrossed, Eye, Flame, Beef, Wheat, Droplets, Leaf, Pencil, Check } from 'lucide-react';
+import { Upload, X, Loader2, ChevronDown, Trash2, UtensilsCrossed, Eye, Flame, Beef, Wheat, Droplets, Leaf, Pencil, Check, RefreshCcw } from 'lucide-react';
 
 const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
 
@@ -20,6 +20,8 @@ interface FoodEntry {
   confidence: string | null;
   raw_analysis: string | null;
   image_thumbnail: string | null;
+  image_data?: string | null;
+  model_used?: string | null;
   created_at: string;
 }
 
@@ -107,6 +109,7 @@ const FoodTrackerWidget: React.FC = () => {
   // Analysis state
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<FoodEntry | null>(null);
+  const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Model selection
@@ -246,8 +249,13 @@ const FoodTrackerWidget: React.FC = () => {
       setError('Please provide an image file (JPEG, PNG, WebP, etc.)');
       return;
     }
+    setSelectedEntryId(null);
     setError(null);
     setAnalysisResult(null);
+    setEditingEntryId(null);
+    setEntryDraft(null);
+    setEditingResult(false);
+    setResultDraft(null);
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -289,18 +297,17 @@ const FoodTrackerWidget: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) processImage(file);
     e.target.value = '';
-  };
-
-  const clearImage = () => {
+    setSelectedEntryId(null);
+  };  const clearImage = () => {
     setImagePreview(null);
     setImageBase64(null);
     setImageThumbnail(null);
     setAnalysisResult(null);
+    setSelectedEntryId(null);
     setEditingResult(false);
     setResultDraft(null);
     setError(null);
   };
-
   const parseNullableNumber = (value: string, field: string) => {
     const trimmed = value.trim();
     if (!trimmed) return null;
@@ -336,8 +343,13 @@ const FoodTrackerWidget: React.FC = () => {
     return data?.error || fallback;
   };
 
-  const handleAnalyze = async () => {
-    if (!imageBase64 || !selectedModel) return;
+  const analyzeCurrentImage = async (overrides?: { entryId?: number | null; sourceImage?: string | null; thumbnail?: string | null }) => {
+    const sourceImage = overrides?.sourceImage ?? imageBase64;
+    const entryId = overrides?.entryId ?? null;
+    const thumbnail = overrides?.thumbnail ?? imageThumbnail;
+
+    if ((!sourceImage && !entryId) || !selectedModel) return;
+
     setIsAnalyzing(true);
     setError(null);
     setAnalysisResult(null);
@@ -346,14 +358,20 @@ const FoodTrackerWidget: React.FC = () => {
 
     try {
       const response = await axios.post(`${API_BASE_URL}/food/analyze`, {
-        image: imageBase64,
+        image: sourceImage,
         model: selectedModel,
-        thumbnail: imageThumbnail,
+        thumbnail,
+        entryId,
       });
       const entry: FoodEntry = response.data;
       setAnalysisResult(entry);
-      setEntries(prev => [entry, ...prev]);
+      setEntries(prev => (entryId ? prev.map(existing => (existing.id === entry.id ? entry : existing)) : [entry, ...prev]));
+      setSelectedEntryId(entry.id);
+      setImagePreview(entry.image_data ? `data:image/jpeg;base64,${entry.image_data}` : null);
+      setImageBase64(entry.image_data || sourceImage || null);
+      setImageThumbnail(entry.image_thumbnail || thumbnail || null);
       fetchFoodLog();
+      return entry;
     } catch (err: unknown) {
       const axiosErr = err as { response?: { status?: number; data?: { error?: string } | string } };
       const status = axiosErr.response?.status;
@@ -366,9 +384,14 @@ const FoodTrackerWidget: React.FC = () => {
         const msg = typeof data === 'string' ? null : data?.error;
         setError(msg || 'Failed to analyze image. Check that the model supports vision.');
       }
+      return null;
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  const handleAnalyze = async () => {
+    await analyzeCurrentImage();
   };
 
   const startEditingResult = () => {
@@ -378,6 +401,50 @@ const FoodTrackerWidget: React.FC = () => {
     setEditingResult(true);
     setResultDraft(toDraft(analysisResult));
   };
+
+  const openFoodEntry = async (entry: FoodEntry) => {
+    setSelectedEntryId(entry.id);
+    setEditingEntryId(null);
+    setEntryDraft(null);
+    setEditingResult(false);
+    setResultDraft(null);
+    setError(null);
+    setAnalysisResult(entry);
+    setImageThumbnail(entry.image_thumbnail || null);
+    setImagePreview(entry.image_data ? `data:image/jpeg;base64,${entry.image_data}` : null);
+    setImageBase64(entry.image_data || null);
+
+    if (!entry.image_data) {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/food/${entry.id}`);
+        const hydrated: FoodEntry = response.data;
+        setAnalysisResult(hydrated);
+        setEntries(prev => prev.map(existing => (existing.id === hydrated.id ? hydrated : existing)));
+        setImageThumbnail(hydrated.image_thumbnail || null);
+        setImagePreview(hydrated.image_data ? `data:image/jpeg;base64,${hydrated.image_data}` : null);
+        setImageBase64(hydrated.image_data || null);
+      } catch (err) {
+        console.error('Failed to load food entry details:', err);
+        setError('Failed to load food details.');
+      }
+    }
+  };
+
+  const handleReanalyze = async () => {
+    if (!analysisResult || !analysisResult.image_data) {
+      setError('Original image is not available for reanalysis.');
+      return;
+    }
+
+    await analyzeCurrentImage({
+      entryId: analysisResult.id,
+      sourceImage: analysisResult.image_data,
+      thumbnail: analysisResult.image_thumbnail,
+    });
+  };
+
+  const isSelectedEntryReanalyzable = !!analysisResult?.image_data;
+  const isSelectedEntryFromSavedList = selectedEntryId != null;
 
   const cancelEditingResult = () => {
     setEditingResult(false);
@@ -695,8 +762,16 @@ const FoodTrackerWidget: React.FC = () => {
                       {analysisResult.serving_description && (
                         <p className="text-xs text-tertiary mt-0.5">{analysisResult.serving_description}</p>
                       )}
+                      <div className="flex items-center gap-2 flex-wrap mt-1">
+                        {isSelectedEntryFromSavedList && (
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-tertiary">Saved entry</p>
+                        )}
+                        {analysisResult.model_used && (
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-tertiary">Model: {analysisResult.model_used}</p>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 flex-wrap justify-end">
                       {analysisResult.confidence && (
                         <span className={`text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded-full shrink-0 ${confidenceBadgeClass(analysisResult.confidence)}`}>
                           {analysisResult.confidence}
@@ -708,6 +783,15 @@ const FoodTrackerWidget: React.FC = () => {
                         className="p-1.5 rounded-lg text-tertiary hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors shrink-0"
                       >
                         <Pencil size={12} />
+                      </button>
+                      <button
+                        onClick={handleReanalyze}
+                        type="button"
+                        disabled={!isSelectedEntryReanalyzable || isAnalyzing}
+                        className="p-1.5 rounded-lg text-tertiary hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors shrink-0 disabled:opacity-40 disabled:hover:text-tertiary disabled:hover:bg-transparent"
+                        title={isSelectedEntryReanalyzable ? 'Reanalyze this food image' : 'Original image is not available for reanalysis'}
+                      >
+                        <RefreshCcw size={12} className={isAnalyzing ? 'animate-spin' : ''} />
                       </button>
                     </div>
                   </div>
@@ -772,11 +856,21 @@ const FoodTrackerWidget: React.FC = () => {
             ) : (
               entries.map(entry => {
                 const isEditingThis = editingEntryId === entry.id && entryDraft != null;
+                const isSelected = selectedEntryId === entry.id;
 
                 return (
                   <div
                     key={entry.id}
-                    className="p-3 rounded-xl bg-black/3 dark:bg-white/3 border border-black/5 dark:border-white/10 group"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openFoodEntry(entry)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openFoodEntry(entry);
+                      }
+                    }}
+                    className={`p-3 rounded-xl border transition-all group cursor-pointer ${isSelected ? 'bg-emerald-500/10 dark:bg-emerald-500/10 border-emerald-500/30 shadow-sm' : 'bg-black/3 dark:bg-white/3 border-black/5 dark:border-white/10 hover:border-emerald-500/20 hover:bg-black/5 dark:hover:bg-white/5'}`}
                   >
                     {isEditingThis ? (
                       renderEditor(
@@ -800,7 +894,7 @@ const FoodTrackerWidget: React.FC = () => {
                         {/* Info */}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-bold text-primary truncate">{entry.food_name}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                             {entry.calories != null && (
                               <span className="text-[10px] font-black text-orange-500">{Math.round(entry.calories)} kcal</span>
                             )}
@@ -810,10 +904,13 @@ const FoodTrackerWidget: React.FC = () => {
                               {entry.fat_g != null ? ` · F ${Math.round(entry.fat_g)}g` : ''}
                             </span>
                           </div>
+                          {entry.model_used && (
+                            <p className="text-[9px] text-tertiary mt-0.5 truncate">Model: {entry.model_used}</p>
+                          )}
                           <p className="text-[9px] text-tertiary mt-0.5">{formatRelativeTime(entry.created_at)}</p>
                         </div>
 
-                        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-all">
+                        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-all" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => startEditingEntry(entry)}
                             className="p-1.5 rounded-lg text-tertiary hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-all"

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  Moon, 
-  Sun, 
+import {
+  Moon,
+  Sun,
   User,
   Bell,
   RefreshCw
@@ -14,6 +14,7 @@ import BiometricsWidget from './components/BiometricsWidget';
 import ActivityMapWidget from './components/ActivityMapWidget';
 import ChatAssistant from './components/ChatAssistant';
 import FitnessAgeWidget from './components/FitnessAgeWidget';
+import FoodTrackerWidget from './components/FoodTrackerWidget';
 
 const API_BASE_URL = 'http://localhost:3001/api';
 
@@ -60,7 +61,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="h-screen flex flex-col p-4 md:p-6 transition-colors duration-300 overflow-hidden">
+    <div className="min-h-screen flex flex-col p-4 md:p-6 transition-colors duration-300">
       {/* Header */}
       <header className="max-w-7xl w-full mx-auto mb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-2 shrink-0">
         <div className="flex-1">
@@ -96,36 +97,41 @@ const App: React.FC = () => {
       </header>
 
       {/* Bento Grid */}
-      <main className="max-w-7xl w-full mx-auto grid grid-cols-1 md:grid-cols-4 grid-rows-3 gap-4 flex-1 min-h-0">
-        
+      <main className="max-w-7xl w-full mx-auto grid grid-cols-1 md:grid-cols-4 md:grid-rows-3 gap-4 md:h-[calc(100vh-12rem)]">
+
         {/* Large Widget - Activities (Map + List) */}
-        <div className="md:col-span-3 md:row-span-2 bento-card p-0 overflow-hidden relative">
+        <div className="md:col-span-3 md:row-span-2 bento-card p-0 overflow-hidden relative min-h-[400px]">
           <ActivityMapWidget key={`map-${refreshKey}`} token={config?.mapboxToken || ''} />
         </div>
 
         {/* Small Widgets */}
-        <div className="md:col-span-1 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden">
+        <div className="md:col-span-1 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden min-h-[160px]">
           <DailySummaryWidget key={`summary-${refreshKey}`} />
         </div>
 
-        <div className="md:col-span-1 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden text-primary">
+        <div className="md:col-span-1 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden text-primary min-h-[160px]">
           <WellnessWidget key={`wellness-${refreshKey}`} />
         </div>
 
         {/* Medium Widgets (Bottom Row) */}
-        <div className="md:col-span-2 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden text-primary">
+        <div className="md:col-span-2 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden text-primary min-h-[160px]">
           <SleepWidget key={`sleep-${refreshKey}`} />
         </div>
 
-        <div className="md:col-span-1 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden text-primary">
+        <div className="md:col-span-1 md:row-span-1 bento-card p-4 flex flex-col justify-between overflow-hidden text-primary min-h-[160px]">
           <BiometricsWidget key={`biometrics-${refreshKey}`} />
         </div>
 
-        <div className="md:col-span-1 md:row-span-1 bento-card p-4 flex flex-col overflow-hidden text-primary">
+        <div className="md:col-span-1 md:row-span-1 bento-card p-4 flex flex-col overflow-hidden text-primary min-h-[160px]">
           <FitnessAgeWidget key={`fitnessage-${refreshKey}`} />
         </div>
 
       </main>
+
+      {/* Food Tracker Widget */}
+      <section className="max-w-7xl w-full mx-auto mt-4">
+        <FoodTrackerWidget key={`food-${refreshKey}`} />
+      </section>
 
       {/* AI Assistant */}
       <ChatAssistant />

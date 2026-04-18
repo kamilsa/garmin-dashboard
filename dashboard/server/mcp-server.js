@@ -85,6 +85,45 @@ server.tool(
   }
 );
 
+// Tool: Food nutrition summary for a date or date range
+server.tool(
+  'food_summary',
+  'Get a summary of food intake for a specific date or date range. Returns total calories, protein, carbs, fat, and individual food entries logged via image analysis.',
+  {
+    days: z.number().optional().describe('Number of days to look back (default: 1 for today)'),
+    date: z.string().optional().describe('Specific date in YYYY-MM-DD format'),
+  },
+  ({ days, date }) => {
+    try {
+      let entries, summary;
+      if (date) {
+        entries = db.prepare(
+          'SELECT * FROM food_log WHERE date(created_at) = ? ORDER BY created_at DESC'
+        ).all(date);
+        summary = db.prepare(
+          'SELECT SUM(calories) as total_calories, SUM(protein_g) as total_protein, SUM(carbs_g) as total_carbs, SUM(fat_g) as total_fat, COUNT(*) as entry_count FROM food_log WHERE date(created_at) = ?'
+        ).get(date);
+      } else {
+        const lookback = days || 1;
+        entries = db.prepare(
+          "SELECT * FROM food_log WHERE created_at >= datetime('now', ? || ' days') ORDER BY created_at DESC"
+        ).all(-lookback);
+        summary = db.prepare(
+          "SELECT SUM(calories) as total_calories, SUM(protein_g) as total_protein, SUM(carbs_g) as total_carbs, SUM(fat_g) as total_fat, COUNT(*) as entry_count FROM food_log WHERE created_at >= datetime('now', ? || ' days')"
+        ).get(-lookback);
+      }
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ summary, entries }) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ error: err.message }) }],
+        isError: true,
+      };
+    }
+  }
+);
+
 // Start the server with stdio transport
 async function main() {
   const transport = new StdioServerTransport();

@@ -11,7 +11,7 @@ const app = express();
 const port = 3001;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 const dbPath = path.join(__dirname, '../../garmin_data.db');
 const db = new Database(dbPath, { verbose: console.log });
@@ -65,6 +65,25 @@ db.exec(`
     role TEXT NOT NULL,
     content TEXT NOT NULL,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// ---- Food Log (image-based nutrition tracking) ----
+db.exec(`
+  CREATE TABLE IF NOT EXISTS food_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    food_name TEXT NOT NULL,
+    description TEXT,
+    calories REAL,
+    protein_g REAL,
+    carbs_g REAL,
+    fat_g REAL,
+    fiber_g REAL,
+    serving_description TEXT,
+    confidence TEXT,
+    raw_analysis TEXT,
+    image_thumbnail TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
 
@@ -198,6 +217,27 @@ const fallbackTools = [
         required: []
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'food_summary',
+      description: 'Get a summary of food intake for a specific date or date range. Returns total calories, protein, carbs, fat, and individual food entries.',
+      parameters: {
+        type: 'object',
+        properties: {
+          days: {
+            type: 'number',
+            description: 'Number of days to look back (default: 1 for today)'
+          },
+          date: {
+            type: 'string',
+            description: 'Specific date in YYYY-MM-DD format'
+          }
+        },
+        required: []
+      }
+    }
   }
 ];
 
@@ -228,12 +268,58 @@ async function handleToolCall(name, args) {
       return executeReadQuery(args.query);
     case 'list_tables':
       return getSchema();
+    case 'food_summary':
+      return getFoodSummary(args);
     default:
       return { error: `Unknown tool: ${name}` };
   }
 }
 
 console.log(`Tools ready (${mcpConnected ? 'MCP server' : 'direct SQLite fallback'})`);
+
+// ---- Food Summary Helper ----
+function getFoodSummary({ days, date }) {
+  try {
+    let entries, summary;
+    if (date) {
+      entries = db.prepare(
+        "SELECT * FROM food_log WHERE date(created_at) = ? ORDER BY created_at DESC"
+      ).all(date);
+      summary = db.prepare(
+        "SELECT SUM(calories) as total_calories, SUM(protein_g) as total_protein, SUM(carbs_g) as total_carbs, SUM(fat_g) as total_fat, COUNT(*) as entry_count FROM food_log WHERE date(created_at) = ?"
+      ).get(date);
+    } else {
+      const lookback = days || 1;
+      entries = db.prepare(
+        "SELECT * FROM food_log WHERE created_at >= datetime('now', ? || ' days') ORDER BY created_at DESC"
+      ).all(-lookback);
+      summary = db.prepare(
+        "SELECT SUM(calories) as total_calories, SUM(protein_g) as total_protein, SUM(carbs_g) as total_carbs, SUM(fat_g) as total_fat, COUNT(*) as entry_count FROM food_log WHERE created_at >= datetime('now', ? || ' days')"
+      ).get(-lookback);
+    }
+    return { summary, entries };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+// ---- Food Analysis Prompt ----
+const FOOD_ANALYSIS_PROMPT = `You are a nutrition analysis AI. Analyze the food in this image and provide a detailed nutritional breakdown.
+
+Respond ONLY with valid JSON in this exact format (no markdown, no code blocks):
+{
+  "food_name": "Name of the food",
+  "description": "Brief description of what you see",
+  "calories": 0,
+  "protein_g": 0,
+  "carbs_g": 0,
+  "fat_g": 0,
+  "fiber_g": 0,
+  "serving_description": "Estimated serving size",
+  "confidence": "high|medium|low"
+}
+
+If you cannot identify the food or estimate nutrition, set confidence to "low" and provide your best estimate with zeros for unknown values.`;
 
 app.get('/api/config', (req, res) => {
   res.json({ mapboxToken });
@@ -323,6 +409,7 @@ Database Schema Overview:
 - steps: 15-min interval step counts (timestamp, value).
 - vo2_max: VO2 max measurements (date, vo2_max_generic).
 - user_profile: user settings and traits (gender, weight in grams, height in cm).
+- food_log: food tracking entries from image analysis (food_name, description, calories, protein_g, carbs_g, fat_g, fiber_g, serving_description, confidence, created_at). Query this to answer questions about nutrition, diet, or to cross-reference with activity data.
 
 Guidelines:
 1. Use the 'read_query' tool to query data if needed to answer the user's question.
@@ -700,6 +787,262 @@ app.get('/api/chat/mcp-status', (req, res) => {
     tools: mcpConnected ? mcpTools.map(t => t.function.name) : fallbackTools.map(t => t.function.name),
     source: mcpConnected ? 'mcp' : 'direct-sqlite',
   });
+});
+
+// ---- Food Tracker Endpoints ----
+
+// Analyze a food image using an Ollama vision model and store the result
+app.post('/api/food/analyze', async (req, res) => {
+  const { image, model, thumbnail } = req.body;
+
+  if (!image || !model) {
+    return res.status(400).json({ error: 'image and model are required' });
+  }
+
+  // Guard against very large payloads (~10MB base64)
+  if (image.length > 10 * 1024 * 1024) {
+    return res.status(413).json({ error: 'Image too large, maximum 10MB' });
+  }
+
+  const ac = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) ac.abort(); });
+
+  try {
+    const messages = [{
+      role: 'user',
+      content: FOOD_ANALYSIS_PROMPT,
+      images: [image],
+    }];
+
+    const result = await ollamaChat(model, messages, null, ac.signal);
+    const rawText = result.message?.content || '';
+
+    // Parse the JSON response (strip markdown fences if present)
+    let nutritionData;
+    try {
+      const cleaned = rawText.replace(/```json?\n?/gi, '').replace(/```/g, '').trim();
+      nutritionData = JSON.parse(cleaned);
+    } catch {
+      // Parsing failed — store raw text, mark low confidence
+      nutritionData = {
+        food_name: 'Unknown food',
+        description: null,
+        calories: null,
+        protein_g: null,
+        carbs_g: null,
+        fat_g: null,
+        fiber_g: null,
+        serving_description: null,
+        confidence: 'low',
+      };
+    }
+
+    const stmt = db.prepare(`
+      INSERT INTO food_log (food_name, description, calories, protein_g, carbs_g, fat_g, fiber_g, serving_description, confidence, raw_analysis, image_thumbnail)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const info = stmt.run(
+      nutritionData.food_name || 'Unknown food',
+      nutritionData.description || null,
+      nutritionData.calories != null ? Number(nutritionData.calories) : null,
+      nutritionData.protein_g != null ? Number(nutritionData.protein_g) : null,
+      nutritionData.carbs_g != null ? Number(nutritionData.carbs_g) : null,
+      nutritionData.fat_g != null ? Number(nutritionData.fat_g) : null,
+      nutritionData.fiber_g != null ? Number(nutritionData.fiber_g) : null,
+      nutritionData.serving_description || null,
+      nutritionData.confidence || 'low',
+      rawText,
+      thumbnail || null
+    );
+
+    const entry = db.prepare('SELECT * FROM food_log WHERE id = ?').get(info.lastInsertRowid);
+    res.json(entry);
+  } catch (err) {
+    if (err.name === 'AbortError') return res.status(499).json({ error: 'Request cancelled' });
+    console.error('Food analysis error:', err);
+    res.status(502).json({ error: 'AI service error', details: err.message });
+  }
+});
+
+// Get food log entries with daily totals
+app.get('/api/food', (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 7;
+    const limit = parseInt(req.query.limit) || 50;
+
+    const entries = db.prepare(`
+      SELECT * FROM food_log
+      WHERE created_at >= datetime('now', ? || ' days')
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(-days, limit);
+
+    const totals = db.prepare(`
+      SELECT date(created_at) as day,
+             SUM(calories) as total_calories,
+             SUM(protein_g) as total_protein,
+             SUM(carbs_g) as total_carbs,
+             SUM(fat_g) as total_fat,
+             COUNT(*) as entry_count
+      FROM food_log
+      WHERE created_at >= datetime('now', ? || ' days')
+      GROUP BY day
+      ORDER BY day DESC
+    `).all(-days);
+
+    res.json({ entries, totals });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update a food log entry
+app.patch('/api/food/:id', (req, res) => {
+  try {
+    const existing = db.prepare('SELECT * FROM food_log WHERE id = ?').get(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Food entry not found' });
+    }
+
+    const allowedFields = new Set([
+      'food_name',
+      'description',
+      'calories',
+      'protein_g',
+      'carbs_g',
+      'fat_g',
+      'fiber_g',
+      'serving_description',
+      'confidence',
+    ]);
+
+    const payloadKeys = Object.keys(req.body || {});
+    if (payloadKeys.length === 0) {
+      return res.status(400).json({ error: 'No fields provided to update' });
+    }
+
+    const unknownFields = payloadKeys.filter(key => !allowedFields.has(key));
+    if (unknownFields.length > 0) {
+      return res.status(400).json({ error: `Unknown fields: ${unknownFields.join(', ')}` });
+    }
+
+    const toNullableText = (value) => {
+      if (value == null) return null;
+      const text = String(value).trim();
+      return text.length > 0 ? text : null;
+    };
+
+    const toNullableNumber = (value, field) => {
+      if (value == null || value === '') return null;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) {
+        throw new Error(`${field} must be a valid number`);
+      }
+      return parsed;
+    };
+
+    const next = {
+      food_name: existing.food_name,
+      description: existing.description,
+      calories: existing.calories,
+      protein_g: existing.protein_g,
+      carbs_g: existing.carbs_g,
+      fat_g: existing.fat_g,
+      fiber_g: existing.fiber_g,
+      serving_description: existing.serving_description,
+      confidence: existing.confidence,
+    };
+
+    if (payloadKeys.includes('food_name')) {
+      const name = toNullableText(req.body.food_name);
+      if (!name) {
+        return res.status(400).json({ error: 'food_name cannot be empty' });
+      }
+      next.food_name = name;
+    }
+
+    if (payloadKeys.includes('description')) {
+      next.description = toNullableText(req.body.description);
+    }
+
+    if (payloadKeys.includes('serving_description')) {
+      next.serving_description = toNullableText(req.body.serving_description);
+    }
+
+    if (payloadKeys.includes('confidence')) {
+      const confidence = toNullableText(req.body.confidence);
+      if (confidence && !['low', 'medium', 'high'].includes(confidence.toLowerCase())) {
+        return res.status(400).json({ error: 'confidence must be low, medium, or high' });
+      }
+      next.confidence = confidence ? confidence.toLowerCase() : null;
+    }
+
+    if (payloadKeys.includes('calories')) {
+      next.calories = toNullableNumber(req.body.calories, 'calories');
+    }
+
+    if (payloadKeys.includes('protein_g')) {
+      next.protein_g = toNullableNumber(req.body.protein_g, 'protein_g');
+    }
+
+    if (payloadKeys.includes('carbs_g')) {
+      next.carbs_g = toNullableNumber(req.body.carbs_g, 'carbs_g');
+    }
+
+    if (payloadKeys.includes('fat_g')) {
+      next.fat_g = toNullableNumber(req.body.fat_g, 'fat_g');
+    }
+
+    if (payloadKeys.includes('fiber_g')) {
+      next.fiber_g = toNullableNumber(req.body.fiber_g, 'fiber_g');
+    }
+
+    db.prepare(`
+      UPDATE food_log
+      SET food_name = ?, description = ?, calories = ?, protein_g = ?, carbs_g = ?, fat_g = ?, fiber_g = ?, serving_description = ?, confidence = ?
+      WHERE id = ?
+    `).run(
+      next.food_name,
+      next.description,
+      next.calories,
+      next.protein_g,
+      next.carbs_g,
+      next.fat_g,
+      next.fiber_g,
+      next.serving_description,
+      next.confidence,
+      req.params.id
+    );
+
+    const updated = db.prepare('SELECT * FROM food_log WHERE id = ?').get(req.params.id);
+    res.json(updated);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Delete a food log entry
+app.delete('/api/food/:id', (req, res) => {
+  try {
+    const info = db.prepare('DELETE FROM food_log WHERE id = ?').run(req.params.id);
+    if (info.changes === 0) {
+      return res.status(404).json({ error: 'Food entry not found' });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Global JSON/body parser error handler
+app.use((err, req, res, next) => {
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Image payload too large. Please upload a smaller image.' });
+  }
+  if (err instanceof SyntaxError && 'body' in err) {
+    return res.status(400).json({ error: 'Invalid JSON payload.' });
+  }
+  next(err);
 });
 
 app.listen(port, () => {

@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Moon } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, Tooltip, Cell } from 'recharts';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
 
 const SleepWidget: React.FC = () => {
   const [data, setData] = useState<any>(null);
@@ -36,12 +36,12 @@ const SleepWidget: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      <div className="flex justify-between items-start mb-2 shrink-0">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-start gap-3 mb-2 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
           <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl text-indigo-600 dark:text-indigo-400">
             <Moon size={18} />
           </div>
-          <div>
+          <div className="min-w-0">
             <h3 className="text-tertiary text-[10px] font-bold uppercase tracking-wider">Last Night</h3>
             <div className="flex items-baseline gap-1">
               <span className="text-2xl font-black text-primary leading-none">
@@ -50,7 +50,7 @@ const SleepWidget: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="flex flex-col items-end">
+        <div className="flex flex-col items-start sm:items-end">
           <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 leading-none">{sleep.sleep_score || '--'}</span>
           <span className="text-[9px] uppercase font-bold text-tertiary tracking-widest mt-0.5">Score</span>
         </div>
@@ -81,7 +81,7 @@ const SleepWidget: React.FC = () => {
         </ResponsiveContainer>
       </div>
 
-      <div className="mt-2 grid grid-cols-4 gap-2 shrink-0">
+      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0">
         {levelsData.map((lvl) => (
           <div key={lvl.name} className="flex flex-col items-center">
             <div className="w-full h-1 rounded-full mb-1" style={{ backgroundColor: lvl.color }} />

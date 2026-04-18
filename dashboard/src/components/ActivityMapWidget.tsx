@@ -9,7 +9,6 @@ import {
   ChevronRight, 
   Activity, 
   Mountain, 
-  Wind, 
   Snowflake, 
   Globe, 
   Map as MapTypeIcon, 
@@ -26,7 +25,7 @@ import {
   Minimize
 } from 'lucide-react';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
 
 interface ActivityMapWidgetProps {
   token: string;
@@ -41,6 +40,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
   const [tsData, setTsData] = useState<any[]>([]);
   const [loadingTs, setLoadingTs] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<mapboxgl.Map | null>(null);
   const selectedActivityRef = useRef<any>(selectedActivity);
@@ -50,6 +50,20 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
   }, [selectedActivity]);
 
   useEffect(() => {
+    const updateViewport = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) {
+        setIsFullScreen(false);
+      }
+    };
+
+    updateViewport();
+    window.addEventListener('resize', updateViewport);
+    return () => window.removeEventListener('resize', updateViewport);
+  }, []);
+
+  useEffect(() => {
     // Force a resize when entering/exiting full screen to fix map dimensions
     if (mapInstance.current) {
       const resizeMap = () => {
@@ -57,17 +71,29 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
           mapInstance.current.resize();
         }
       };
-      
+
       // Delay slightly to allow the DOM to update classes/dimensions
       const timer = setTimeout(resizeMap, 300);
       window.addEventListener('resize', resizeMap);
-      
+
       return () => {
         clearTimeout(timer);
         window.removeEventListener('resize', resizeMap);
       };
     }
   }, [isFullScreen, viewMode]);
+
+  useEffect(() => {
+    if (isMobile && selectedActivity && isOutdoor(selectedActivity.activity_type) && viewMode === 'map') {
+      setMapViewMode('stats');
+    }
+  }, [isMobile, selectedActivity, viewMode]);
+
+  useEffect(() => {
+    if (isMobile && isFullScreen) {
+      setIsFullScreen(false);
+    }
+  }, [isMobile, isFullScreen]);
 
   useEffect(() => {
     const fetchActivities = async () => {
@@ -77,7 +103,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
         if (response.data.length > 0) {
           const first = response.data[0];
           setSelectedActivity(first);
-          if (!isOutdoor(first.activity_type)) {
+          if (!isOutdoor(first.activity_type) || window.innerWidth < 768) {
             setMapViewMode('stats');
           }
         }
@@ -249,7 +275,11 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
       for (const coord of coordinates) {
         bounds.extend(coord);
       }
-      m.fitBounds(bounds, { padding: 100, duration: 2000, pitch: 60 });
+      m.fitBounds(bounds, {
+        padding: isMobile ? 40 : 100,
+        duration: 2000,
+        pitch: isMobile ? 0 : 60,
+      });
 
     } catch (error) {
       console.error('Error fetching activity path:', error);
@@ -297,56 +327,56 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
     const a = selectedActivity;
 
     return (
-      <div className="p-6 md:p-8 h-full overflow-y-auto bg-[var(--apple-bg)] transition-colors duration-300 custom-scrollbar">
-        <div className="max-w-4xl mx-auto space-y-4">
-          <div className="flex items-center gap-4">
+      <div className="p-4 md:p-8 h-full overflow-y-auto bg-[var(--apple-bg)] transition-colors duration-300 custom-scrollbar">
+        <div className="max-w-4xl mx-auto space-y-4 md:space-y-5">
+          <div className="flex items-start gap-3 md:gap-4 pr-14 md:pr-0">
             <div className="p-4 bg-blue-500 rounded-[1.5rem] text-white shadow-xl hidden lg:block">
               {getActivityIcon(a.activity_type)}
             </div>
             <div>
-              <h2 className="text-2xl font-black text-primary mb-1 tracking-tight">{a.activity_name || a.activity_type.replace(/_/g, ' ')}</h2>
+              <h2 className="text-xl md:text-2xl font-black text-primary mb-1 tracking-tight">{a.activity_name || a.activity_type.replace(/_/g, ' ')}</h2>
               <p className="text-tertiary font-bold uppercase tracking-widest text-[10px]">
                 {new Date(a.start_ts.replace(' ', 'T') + 'Z').toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="bento-card p-5 flex flex-col justify-between bg-[var(--apple-card)]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bento-card p-4 md:p-5 flex flex-col justify-between bg-[var(--apple-card)] min-h-[112px]">
               <div className="text-tertiary font-black text-[9px] uppercase tracking-widest mb-2 flex items-center gap-1.5">
                 <Navigation size={10} className="text-blue-500" /> Distance
               </div>
               <div className="text-3xl font-black text-primary tracking-tighter">{(a.distance / 1000).toFixed(2)} <span className="text-xs font-bold text-tertiary">km</span></div>
             </div>
-            <div className="bento-card p-5 flex flex-col justify-between bg-[var(--apple-card)]">
+            <div className="bento-card p-4 md:p-5 flex flex-col justify-between bg-[var(--apple-card)] min-h-[112px]">
               <div className="text-tertiary font-black text-[9px] uppercase tracking-widest mb-2 flex items-center gap-1.5">
                 <Timer size={10} className="text-orange-500" /> Time
               </div>
-              <div className="text-3xl font-black text-primary tracking-tighter">
+              <div className="text-2xl md:text-3xl font-black text-primary tracking-tighter break-words">
                 {formatDuration(a.duration)} <span className="text-xs font-bold text-tertiary">{a.duration >= 3600 ? 'h:m:s' : 'm:s'}</span>
               </div>
             </div>
-            <div className="bento-card p-5 flex flex-col justify-between bg-[var(--apple-card)]">
+            <div className="bento-card p-4 md:p-5 flex flex-col justify-between bg-[var(--apple-card)] min-h-[112px]">
               <div className="text-tertiary font-black text-[9px] uppercase tracking-widest mb-2 flex items-center gap-1.5">
                 <Heart size={10} className="text-red-500" /> Avg HR
               </div>
-              <div className="text-3xl font-black text-primary tracking-tighter">{Math.round(a.average_hr) || '--'} <span className="text-xs font-bold text-tertiary">bpm</span></div>
+              <div className="text-2xl md:text-3xl font-black text-primary tracking-tighter">{Math.round(a.average_hr) || '--'} <span className="text-xs font-bold text-tertiary">bpm</span></div>
             </div>
-            <div className="bento-card p-5 flex flex-col justify-between bg-[var(--apple-card)]">
+            <div className="bento-card p-4 md:p-5 flex flex-col justify-between bg-[var(--apple-card)] min-h-[112px]">
               <div className="text-tertiary font-black text-[9px] uppercase tracking-widest mb-2 flex items-center gap-1.5">
                 <Flame size={10} className="text-yellow-500" /> Calories
               </div>
-              <div className="text-3xl font-black text-primary tracking-tighter">{Math.round(a.calories)} <span className="text-xs font-bold text-tertiary">kcal</span></div>
+              <div className="text-2xl md:text-3xl font-black text-primary tracking-tighter">{Math.round(a.calories)} <span className="text-xs font-bold text-tertiary">kcal</span></div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
-            <div className="bento-card p-6 bg-[var(--apple-card)]">
+            <div className="bento-card p-4 md:p-6 bg-[var(--apple-card)]">
               <h4 className="text-tertiary font-black text-[9px] uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-black/5 dark:border-white/5 pb-3">
                 <Trophy size={12} className="text-yellow-500" /> Performance Metrics
               </h4>
               <div className="space-y-4">
-                <div className="flex justify-between items-center gap-2">
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                   <span className="text-sm font-bold text-secondary truncate">
                     {a.activity_type.includes('run') ? 'Avg Pace' : 'Avg Speed'}
                   </span>
@@ -354,20 +384,20 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
                     {a.activity_type.includes('run') ? formatPace(a.average_speed) : (a.average_speed * 3.6).toFixed(1)} <span className="text-xs text-tertiary font-medium">{a.activity_type.includes('run') ? 'min/km' : 'km/h'}</span>
                   </span>
                 </div>
-                <div className="flex justify-between items-center">
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                   <span className="text-sm font-bold text-secondary">Max Speed</span>
-                  <span className="text-lg font-black text-primary">{(a.max_speed * 3.6).toFixed(1)} <span className="text-xs text-tertiary font-medium">km/h</span></span>
+                  <span className="text-lg font-black text-primary sm:text-right">{(a.max_speed * 3.6).toFixed(1)} <span className="text-xs text-tertiary font-medium">km/h</span></span>
                 </div>
                 {(a.avg_running_cadence || a.avg_biking_cadence) && (
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                     <span className="text-sm font-bold text-secondary">Avg Cadence</span>
-                    <span className="text-lg font-black text-primary">{Math.round(a.avg_running_cadence || a.avg_biking_cadence)} <span className="text-xs text-tertiary font-medium">rpm</span></span>
+                    <span className="text-lg font-black text-primary sm:text-right">{Math.round(a.avg_running_cadence || a.avg_biking_cadence)} <span className="text-xs text-tertiary font-medium">rpm</span></span>
                   </div>
                 )}
                 {a.avg_power > 0 && (
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                     <span className="text-sm font-bold text-secondary">Avg Power</span>
-                    <span className="text-lg font-black text-primary">{Math.round(a.avg_power)} <span className="text-xs text-tertiary font-medium">W</span></span>
+                    <span className="text-lg font-black text-primary sm:text-right">{Math.round(a.avg_power)} <span className="text-xs text-tertiary font-medium">W</span></span>
                   </div>
                 )}
               </div>
@@ -379,28 +409,28 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
                 {a.running_elevation_gain > 0 || a.cycling_elevation_gain > 0 ? "Training & Elevation" : "Training Effect"}
               </h4>
               <div className="space-y-4 flex-1">
-                <div className="flex justify-between items-center">
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                   <span className="text-sm font-bold text-secondary">Aerobic TE</span>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 sm:justify-end">
                     <span className="text-lg font-black text-primary">{(a.aerobic_training_effect || 0).toFixed(1)}</span>
-                    <div className="w-20 bg-black/5 dark:bg-white/10 h-2.5 rounded-full overflow-hidden">
+                    <div className="w-16 sm:w-20 bg-black/5 dark:bg-white/10 h-2.5 rounded-full overflow-hidden">
                       <div className="bg-blue-500 h-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" style={{ width: `${(a.aerobic_training_effect / 5) * 100}%` }} />
                     </div>
                   </div>
                 </div>
-                <div className="flex justify-between items-center">
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                   <span className="text-sm font-bold text-secondary">Anaerobic TE</span>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 sm:justify-end">
                     <span className="text-lg font-black text-primary">{(a.anaerobic_training_effect || 0).toFixed(1)}</span>
-                    <div className="w-20 bg-black/5 dark:bg-white/10 h-2.5 rounded-full overflow-hidden">
+                    <div className="w-16 sm:w-20 bg-black/5 dark:bg-white/10 h-2.5 rounded-full overflow-hidden">
                       <div className="bg-purple-500 h-full shadow-[0_0_8px_rgba(168,85,247,0.5)]" style={{ width: `${(a.anaerobic_training_effect / 5) * 100}%` }} />
                     </div>
                   </div>
                 </div>
                 {(a.running_elevation_gain > 0 || a.cycling_elevation_gain > 0) && (
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                     <span className="text-sm font-bold text-secondary">Elevation Gain</span>
-                    <span className="text-lg font-black text-primary">{Math.round(a.running_elevation_gain || a.cycling_elevation_gain)} <span className="text-xs text-tertiary font-medium">m</span></span>
+                    <span className="text-lg font-black text-primary sm:text-right">{Math.round(a.running_elevation_gain || a.cycling_elevation_gain)} <span className="text-xs text-tertiary font-medium">m</span></span>
                   </div>
                 )}
               </div>
@@ -420,14 +450,14 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
     if (!selectedActivity) return null;
     if (loadingTs) {
       return (
-        <div className="p-8 h-full flex flex-col items-center justify-center bg-[var(--apple-bg)]">
+        <div className="p-6 md:p-8 h-full flex flex-col items-center justify-center bg-[var(--apple-bg)]">
           <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin shadow-lg" />
         </div>
       );
     }
     if (tsData.length === 0) {
       return (
-        <div className="p-8 h-full flex flex-col items-center justify-center bg-[var(--apple-bg)] text-tertiary font-bold text-sm">
+        <div className="p-6 md:p-8 h-full flex flex-col items-center justify-center bg-[var(--apple-bg)] text-tertiary font-bold text-sm text-center">
           No time-series data available for this activity.
         </div>
       );
@@ -451,14 +481,14 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
     };
 
     return (
-      <div className="p-6 md:p-8 h-full overflow-y-auto bg-[var(--apple-bg)] transition-colors duration-300 custom-scrollbar">
-        <div className="max-w-4xl mx-auto space-y-6 pb-8">
-          <div className="flex items-center gap-4 mb-8">
+      <div className="p-4 md:p-8 h-full overflow-y-auto bg-[var(--apple-bg)] transition-colors duration-300 custom-scrollbar">
+        <div className="max-w-4xl mx-auto space-y-5 md:space-y-6 pb-6 md:pb-8">
+          <div className="flex items-start gap-3 md:gap-4 mb-6 md:mb-8 pr-14 md:pr-0">
             <div className="p-4 bg-purple-500 rounded-[1.5rem] text-white shadow-xl hidden lg:block">
               <TrendingUp size={24} />
             </div>
             <div>
-              <h2 className="text-2xl font-black text-primary mb-1 tracking-tight">Performance Charts</h2>
+              <h2 className="text-xl md:text-2xl font-black text-primary mb-1 tracking-tight">Performance Charts</h2>
               <p className="text-tertiary font-bold uppercase tracking-widest text-[10px]">
                 {selectedActivity.activity_name || selectedActivity.activity_type.replace(/_/g, ' ')}
               </p>
@@ -466,7 +496,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
           </div>
 
           <div className="space-y-6">
-            <div className="bento-card p-6 bg-[var(--apple-card)]">
+            <div className="bento-card p-4 md:p-6 bg-[var(--apple-card)]">
               <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Timer size={12} className="text-blue-500" /> Pace (min/km)
               </div>
@@ -482,7 +512,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
               </div>
             </div>
 
-            <div className="bento-card p-6 bg-[var(--apple-card)]">
+            <div className="bento-card p-4 md:p-6 bg-[var(--apple-card)]">
               <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Heart size={12} className="text-red-500" /> Heart Rate (bpm)
               </div>
@@ -499,7 +529,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
             </div>
 
             {tsData.some(d => d.power) && (
-              <div className="bento-card p-6 bg-[var(--apple-card)]">
+              <div className="bento-card p-4 md:p-6 bg-[var(--apple-card)]">
                 <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
                   <Zap size={12} className="text-purple-500" /> Power (W)
                 </div>
@@ -517,7 +547,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
             )}
 
             {tsData.some(d => d.step_length) && (
-              <div className="bento-card p-6 bg-[var(--apple-card)]">
+              <div className="bento-card p-4 md:p-6 bg-[var(--apple-card)]">
                 <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
                   <Activity size={12} className="text-blue-400" /> Stride Length (m)
                 </div>
@@ -535,7 +565,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
             )}
 
             {tsData.some(d => d.vr) && (
-              <div className="bento-card p-6 bg-[var(--apple-card)]">
+              <div className="bento-card p-4 md:p-6 bg-[var(--apple-card)]">
                 <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
                   <Activity size={12} className="text-orange-500" /> Vertical Ratio (%)
                 </div>
@@ -553,7 +583,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
             )}
 
             {tsData.some(d => d.gct) && (
-              <div className="bento-card p-6 bg-[var(--apple-card)]">
+              <div className="bento-card p-4 md:p-6 bg-[var(--apple-card)]">
                 <div className="text-tertiary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
                   <Activity size={12} className="text-yellow-500" /> Ground Contact Time (ms)
                 </div>
@@ -579,7 +609,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
     <div className={`h-full w-full flex flex-col md:flex-row min-h-0 ${isFullScreen ? 'fixed inset-0 z-[100] bg-[var(--apple-bg)] p-4 md:p-10' : ''}`}>
       {/* Sidebar */}
       <div className={`border-black/5 dark:border-white/10 flex flex-col bg-white/50 dark:bg-black/20 backdrop-blur-sm min-h-0 ${
-        isFullScreen ? 'w-full md:w-96 rounded-3xl border mr-6 shadow-2xl' : 'w-full md:w-72 lg:w-80 border-b md:border-b-0 md:border-r h-1/3 md:h-full'
+        isFullScreen ? 'w-full md:w-96 rounded-3xl border md:mr-6 shadow-2xl' : 'w-full md:w-72 lg:w-80 border-b md:border-b-0 md:border-r min-h-[180px] md:h-full max-h-[38vh] md:max-h-none'
       }`}>
         <div className="p-3 border-b border-black/5 dark:border-white/10 shrink-0">
           <h3 className="text-base font-black flex items-center gap-2 text-primary">
@@ -594,7 +624,7 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
               key={activity.activity_id}
               onClick={() => {
                 setSelectedActivity(activity);
-                if (!isOutdoor(activity.activity_type)) {
+                if (!isOutdoor(activity.activity_type) || isMobile) {
                   setMapViewMode('stats');
                 }
               }}
@@ -630,29 +660,29 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
       </div>
 
       {/* Main Content Area */}
-      <div className={`flex-1 relative min-h-0 overflow-hidden flex flex-col ${isFullScreen ? 'bento-card shadow-2xl' : ''}`}>
-        <div className="absolute top-6 md:top-8 right-20 md:right-24 z-20 flex bg-white/90 dark:bg-[#1C1C1E]/90 backdrop-blur-md p-1 rounded-2xl shadow-2xl border border-black/5 dark:border-white/10 mt-1 md:mt-2">
+      <div className={`flex-1 relative min-h-[320px] md:min-h-0 overflow-hidden flex flex-col ${isFullScreen ? 'bento-card shadow-2xl' : ''}`}>
+        <div className="absolute top-4 md:top-8 left-4 right-4 md:left-auto md:right-24 z-20 flex flex-wrap justify-center md:justify-start bg-white/90 dark:bg-[#1C1C1E]/90 backdrop-blur-md p-1 rounded-2xl shadow-2xl border border-black/5 dark:border-white/10">
           {selectedActivity && isOutdoor(selectedActivity.activity_type) && (
-            <button 
+            <button
               onClick={() => setMapViewMode('map')}
-              className={`px-4 py-2 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+              className={`px-3 md:px-4 py-2 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${
                 viewMode === 'map' ? 'bg-blue-500 text-white shadow-lg' : 'text-tertiary hover:text-primary'
               }`}
             >
               <MapTypeIcon size={14} /> Map
             </button>
           )}
-          <button 
+          <button
             onClick={() => setMapViewMode('stats')}
-            className={`px-4 py-2 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+            className={`px-3 md:px-4 py-2 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${
               viewMode === 'stats' ? 'bg-blue-500 text-white shadow-lg' : 'text-tertiary hover:text-primary'
             }`}
           >
             <BarChart3 size={14} /> Stats
           </button>
-          <button 
+          <button
             onClick={() => setMapViewMode('charts')}
-            className={`px-4 py-2 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+            className={`px-3 md:px-4 py-2 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${
               viewMode === 'charts' ? 'bg-blue-500 text-white shadow-lg' : 'text-tertiary hover:text-primary'
             }`}
           >
@@ -661,21 +691,23 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
         </div>
 
         {/* Full Screen Toggle */}
-        <button 
-          onClick={() => setIsFullScreen(!isFullScreen)}
-          className="absolute top-6 md:top-8 right-6 z-20 p-2.5 bg-white/90 dark:bg-[#1C1C1E]/90 backdrop-blur-md rounded-2xl shadow-2xl border border-black/5 dark:border-white/10 text-[#1D1D1F] dark:text-[#F5F5F7] hover:scale-110 transition-all mt-1 md:mt-2"
-        >
-          {isFullScreen ? <Minimize size={18} /> : <Maximize size={18} />}
-        </button>
+        {!isMobile && (
+          <button
+            onClick={() => setIsFullScreen(!isFullScreen)}
+            className="absolute top-6 md:top-8 right-6 z-20 p-2.5 bg-white/90 dark:bg-[#1C1C1E]/90 backdrop-blur-md rounded-2xl shadow-2xl border border-black/5 dark:border-white/10 text-[#1D1D1F] dark:text-[#F5F5F7] hover:scale-110 transition-all mt-1 md:mt-2"
+          >
+            {isFullScreen ? <Minimize size={18} /> : <Maximize size={18} />}
+          </button>
+        )}
 
         {viewMode === 'map' && selectedActivity && isOutdoor(selectedActivity.activity_type) ? (
           <div className="h-full w-full relative">
             <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
             
-            <div className="absolute top-6 md:top-8 left-6 z-20 mt-1 md:mt-2">
-              <button 
+            <div className="absolute top-[4.5rem] md:top-8 left-4 md:left-6 z-20">
+              <button
                 onClick={() => setMapStyle(mapStyle === 'outdoors' ? 'satellite' : 'outdoors')}
-                className="px-4 py-2.5 rounded-2xl shadow-2xl border border-black/5 dark:border-white/10 transition-all flex items-center gap-2 font-black text-[10px] uppercase tracking-widest backdrop-blur-md bg-white/90 dark:bg-[#1C1C1E]/90 text-[#1D1D1F] dark:text-[#F5F5F7] hover:bg-white dark:hover:bg-[#1C1C1E]"
+                className="px-3 md:px-4 py-2 md:py-2.5 rounded-2xl shadow-2xl border border-black/5 dark:border-white/10 transition-all flex items-center gap-2 font-black text-[10px] uppercase tracking-widest backdrop-blur-md bg-white/90 dark:bg-[#1C1C1E]/90 text-[#1D1D1F] dark:text-[#F5F5F7] hover:bg-white dark:hover:bg-[#1C1C1E]"
               >
                 {mapStyle === 'outdoors' ? (
                   <><Globe size={16} className="text-blue-500" /> Satellite</>
@@ -685,27 +717,27 @@ const ActivityMapWidget: React.FC<ActivityMapWidgetProps> = ({ token }) => {
               </button>
             </div>
 
-            <div className="absolute bottom-6 left-6 right-6 pointer-events-none z-20">
-              <div className="bento-card bg-white/95 dark:bg-[#1C1C1E]/95 backdrop-blur-lg p-5 flex justify-between items-center pointer-events-auto border border-black/10 dark:border-white/20 shadow-2xl">
-                <div className="flex gap-8">
+            <div className="absolute bottom-4 md:bottom-6 left-4 md:left-6 right-4 md:right-6 pointer-events-none z-20">
+              <div className="bento-card bg-white/95 dark:bg-[#1C1C1E]/95 backdrop-blur-lg p-4 md:p-5 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 pointer-events-auto border border-black/10 dark:border-white/20 shadow-2xl">
+                <div className="grid grid-cols-2 sm:flex gap-4 sm:gap-8">
                   <div>
                     <div className="text-[10px] font-black text-tertiary uppercase tracking-widest mb-1">Distance</div>
-                    <div className="text-2xl font-black text-primary">{(selectedActivity.distance / 1000).toFixed(2)} <span className="text-xs font-bold text-tertiary">km</span></div>
+                    <div className="text-xl md:text-2xl font-black text-primary">{(selectedActivity.distance / 1000).toFixed(2)} <span className="text-xs font-bold text-tertiary">km</span></div>
                   </div>
                   <div>
                     <div className="text-[10px] font-black text-tertiary uppercase tracking-widest mb-1">Duration</div>
-                    <div className="text-2xl font-black text-primary">
+                    <div className="text-xl md:text-2xl font-black text-primary break-words">
                       {formatDuration(selectedActivity.duration)} <span className="text-xs font-bold text-tertiary">{selectedActivity.duration >= 3600 ? 'h:m:s' : 'm:s'}</span>
                     </div>
                   </div>
                   {(selectedActivity.running_elevation_gain > 0 || selectedActivity.cycling_elevation_gain > 0) && (
                     <div>
                       <div className="text-[10px] font-black text-tertiary uppercase tracking-widest mb-1">Ascent</div>
-                      <div className="text-2xl font-black text-primary">{Math.round(selectedActivity.running_elevation_gain || selectedActivity.cycling_elevation_gain)} <span className="text-xs font-bold text-tertiary">m</span></div>
+                      <div className="text-xl md:text-2xl font-black text-primary">{Math.round(selectedActivity.running_elevation_gain || selectedActivity.cycling_elevation_gain)} <span className="text-xs font-bold text-tertiary">m</span></div>
                     </div>
                   )}
                 </div>
-                <div className="p-3 bg-blue-500 rounded-2xl text-white shadow-lg">
+                <div className="hidden sm:flex p-3 bg-blue-500 rounded-2xl text-white shadow-lg self-end sm:self-auto">
                   <Activity size={24} />
                 </div>
               </div>

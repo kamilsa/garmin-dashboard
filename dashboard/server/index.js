@@ -9,6 +9,7 @@ const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio
 
 const app = express();
 const port = 3001;
+const host = '0.0.0.0';
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -1045,6 +1046,6 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
-app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+app.listen(port, host, () => {
+  console.log(`Server running at http://${host}:${port}`);
 });

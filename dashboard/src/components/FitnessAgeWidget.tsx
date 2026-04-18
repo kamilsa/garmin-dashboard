@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { ResponsiveContainer, AreaChart, Area, YAxis, Tooltip } from 'recharts';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
 
 const FitnessAgeWidget: React.FC = () => {
   const [data, setData] = useState<any>(null);
@@ -31,12 +31,6 @@ const FitnessAgeWidget: React.FC = () => {
     ageDelta >= 4 ? 'text-green-500' :
     ageDelta >= 0 ? 'text-blue-500' :
     'text-orange-500';
-
-  const glowColor =
-    ageDelta >= 8 ? 'shadow-emerald-500/20' :
-    ageDelta >= 4 ? 'shadow-green-500/20' :
-    ageDelta >= 0 ? 'shadow-blue-500/20' :
-    'shadow-orange-500/20';
 
   const bgGradient =
     ageDelta >= 8 ? 'from-emerald-500/10 to-transparent' :

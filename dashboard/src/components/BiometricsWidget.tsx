@@ -3,7 +3,7 @@ import axios from 'axios';
 import { TrendingUp } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, Tooltip, YAxis } from 'recharts';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
 
 const BiometricsWidget: React.FC = () => {
   const [data, setData] = useState<any>(null);
@@ -48,8 +48,8 @@ const BiometricsWidget: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 flex-1 min-h-0">
-        <div className="flex flex-col min-h-0">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1 min-h-0">
+        <div className="flex flex-col min-h-[140px] sm:min-h-0">
           <div className="flex justify-between items-end mb-1 shrink-0">
             <div>
               <span className="text-[9px] font-black text-tertiary uppercase tracking-widest">VO2 Max</span>
@@ -77,7 +77,7 @@ const BiometricsWidget: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex flex-col min-h-0">
+        <div className="flex flex-col min-h-[140px] sm:min-h-0">
           <div className="flex justify-between items-end mb-1 shrink-0">
             <div>
               <span className="text-[9px] font-black text-tertiary uppercase tracking-widest">Weight (kg)</span>

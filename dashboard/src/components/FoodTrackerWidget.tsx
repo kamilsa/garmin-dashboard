@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { Upload, X, Loader2, ChevronDown, Trash2, UtensilsCrossed, Eye, Flame, Beef, Wheat, Droplets, Leaf, Pencil, Check } from 'lucide-react';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
 
 // Known vision-capable model families / name fragments
 const VISION_HINTS = ['gemma', 'llava', 'vision', 'minicpm', 'bakllava', 'moondream', 'llama3.2', 'qwen2-vl', 'pixtral', 'cogvlm'];
@@ -113,6 +113,7 @@ const FoodTrackerWidget: React.FC = () => {
   const [models, setModels] = useState<OllamaModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [openModelPickerUpward, setOpenModelPickerUpward] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [editingResult, setEditingResult] = useState(false);
   const [resultDraft, setResultDraft] = useState<FoodEditDraft | null>(null);
@@ -171,6 +172,57 @@ const FoodTrackerWidget: React.FC = () => {
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showModelPicker]);
+
+  useEffect(() => {
+    if (!showModelPicker || !modelPickerRef.current) return;
+
+    const updateModelPickerDirection = () => {
+      if (!modelPickerRef.current) return;
+      const rect = modelPickerRef.current.getBoundingClientRect();
+      const estimatedMenuHeight = Math.min(models.length * 40, 192) + 8;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setOpenModelPickerUpward(spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow);
+    };
+
+    updateModelPickerDirection();
+    window.addEventListener('resize', updateModelPickerDirection);
+    window.addEventListener('scroll', updateModelPickerDirection, true);
+
+    return () => {
+      window.removeEventListener('resize', updateModelPickerDirection);
+      window.removeEventListener('scroll', updateModelPickerDirection, true);
+    };
+  }, [showModelPicker, models.length]);
+
+  useEffect(() => {
+    if (!showModelPicker) {
+      setOpenModelPickerUpward(false);
+    }
+  }, [showModelPicker]);
+
+  const toggleModelPicker = () => {
+    if (!showModelPicker && modelPickerRef.current) {
+      const rect = modelPickerRef.current.getBoundingClientRect();
+      const estimatedMenuHeight = Math.min(models.length * 40, 192) + 8;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setOpenModelPickerUpward(spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow);
+    }
+    setShowModelPicker(p => !p);
+  };
+
+  const handleModelSelect = (modelName: string) => {
+    setSelectedModel(modelName);
+    setShowModelPicker(false);
+  };
+
+  const modelPickerMenuClassName = openModelPickerUpward
+    ? 'absolute bottom-full left-0 right-0 mb-1 z-50 bg-[var(--apple-card)] border border-black/5 dark:border-white/10 rounded-xl shadow-apple overflow-hidden'
+    : 'absolute top-full left-0 right-0 mt-1 z-50 bg-[var(--apple-card)] border border-black/5 dark:border-white/10 rounded-xl shadow-apple overflow-hidden';
+
+  const modelPickerChevronClassName = `text-tertiary shrink-0 transition-transform ${showModelPicker ? 'rotate-180' : ''}`;
+
 
   // Generate a small JPEG thumbnail from a data URL
   const generateThumbnail = (dataUrl: string, maxSize = 200): Promise<string> => {
@@ -500,7 +552,7 @@ const FoodTrackerWidget: React.FC = () => {
   );
 
   return (
-    <div className="bento-card p-6">
+    <div className="bento-card p-6 overflow-visible">
       {/* Header */}
       <div className="flex items-center gap-2 mb-5">
         <div className="p-2.5 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl text-emerald-600 dark:text-emerald-400">
@@ -574,7 +626,7 @@ const FoodTrackerWidget: React.FC = () => {
             {/* Model selector */}
             <div className="relative flex-1" ref={modelPickerRef}>
               <button
-                onClick={() => setShowModelPicker(p => !p)}
+                onClick={toggleModelPicker}
                 disabled={models.length === 0}
                 className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 text-xs font-semibold text-primary hover:bg-black/8 dark:hover:bg-white/8 transition-colors disabled:opacity-50"
               >
@@ -582,16 +634,16 @@ const FoodTrackerWidget: React.FC = () => {
                 {selectedModel && isVisionModel(models.find(m => m.name === selectedModel) || { name: selectedModel, size: 0, parameterSize: null, family: null }) && (
                   <Eye size={12} className="text-blue-500 shrink-0" />
                 )}
-                <ChevronDown size={12} className="text-tertiary shrink-0" />
+                <ChevronDown size={12} className={modelPickerChevronClassName} />
               </button>
 
               {showModelPicker && models.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-[var(--apple-card)] border border-black/5 dark:border-white/10 rounded-xl shadow-apple overflow-hidden">
+                <div className={modelPickerMenuClassName}>
                   <div className="max-h-48 overflow-y-auto">
                     {models.map(m => (
                       <button
                         key={m.name}
-                        onClick={() => { setSelectedModel(m.name); setShowModelPicker(false); }}
+                        onClick={() => handleModelSelect(m.name)}
                         className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-xs hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-left ${selectedModel === m.name ? 'font-bold text-primary' : 'font-medium text-secondary'}`}
                       >
                         <span className="truncate">{m.name}</span>

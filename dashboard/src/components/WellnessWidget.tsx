@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Zap, Heart, Activity } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, Tooltip } from 'recharts';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
 
 const WellnessWidget: React.FC = () => {
   const [data, setData] = useState<any>(null);

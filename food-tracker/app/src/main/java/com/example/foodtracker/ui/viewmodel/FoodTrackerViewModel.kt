@@ -324,6 +324,30 @@ class FoodTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     // --- Entry list editing ---
 
+    fun editEntry(id: Int) {
+        viewModelScope.launch {
+            repository.getFoodEntry(id).fold(
+                onSuccess = { entry ->
+                    val imageDataUrl = entry.imageThumbnail ?: entry.imageData
+                    val imageUri = imageDataUrl?.let { saveBase64ToCacheUri(it) }
+                    _uiState.update {
+                        it.copy(
+                            analysisResult = entry,
+                            isEditingResult = true,
+                            resultDraft = entryToDraft(entry),
+                            imageUri = imageUri,
+                            imageBase64 = entry.imageData?.let { stripDataUrlPrefix(it) },
+                            imageThumbnail = entry.imageThumbnail
+                        )
+                    }
+                },
+                onFailure = { e ->
+                    _uiState.update { it.copy(error = "Failed to load entry: ${e.message}") }
+                }
+            )
+        }
+    }
+
     fun openEntry(id: Int) {
         viewModelScope.launch {
             repository.getFoodEntry(id).fold(

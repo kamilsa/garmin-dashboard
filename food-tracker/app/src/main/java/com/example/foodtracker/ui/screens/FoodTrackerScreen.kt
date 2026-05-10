@@ -192,7 +192,10 @@ fun FoodTrackerScreen(
                         foodVm.openEntry(it)
                         isHistoryExpanded = false
                     },
-                    onEditEntry = { foodVm.startEditingEntry(it) },
+                    onEditEntry = {
+                        foodVm.editEntry(it)
+                        isHistoryExpanded = false
+                    },
                     onDeleteEntry = { foodVm.deleteEntry(it) },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -311,7 +314,7 @@ fun FoodTrackerScreen(
                             deletingId = state.deletingId,
                             onRefresh = { foodVm.loadFoodLog() },
                             onEntryClick = { foodVm.openEntry(it) },
-                            onEditEntry = { foodVm.startEditingEntry(it) },
+                            onEditEntry = { foodVm.editEntry(it) },
                             onDeleteEntry = { foodVm.deleteEntry(it) }
                         )
                     }

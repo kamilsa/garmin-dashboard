@@ -63,7 +63,9 @@ import java.io.File
 fun FoodTrackerScreen(
     foodVm: FoodTrackerViewModel = viewModel(),
     settingsUrl: String,
-    onSettingsUrlChange: (String) -> Unit
+    dailyCalorieGoal: Int,
+    onSettingsUrlChange: (String) -> Unit,
+    onDailyCalorieGoalChange: (Int) -> Unit
 ) {
     val state by foodVm.uiState.collectAsState()
     val isDark = isSystemInDarkTheme()
@@ -225,7 +227,7 @@ fun FoodTrackerScreen(
                         color = Color(0xFF86868B)
                     )
                     Spacer(Modifier.height(8.dp))
-                    DailyTotalsBar(totals = state.todayTotals)
+                    DailyTotalsBar(totals = state.todayTotals, calorieGoal = dailyCalorieGoal.takeIf { it > 0 })
                 }
             }
 
@@ -262,8 +264,10 @@ fun FoodTrackerScreen(
         if (showSettings) {
             SettingsDialog(
                 currentUrl = settingsUrl,
-                onSave = {
-                    onSettingsUrlChange(it)
+                currentGoal = dailyCalorieGoal,
+                onSave = { url, goal ->
+                    onSettingsUrlChange(url)
+                    onDailyCalorieGoalChange(goal)
                     showSettings = false
                     foodVm.loadModels()
                     foodVm.loadFoodLog()

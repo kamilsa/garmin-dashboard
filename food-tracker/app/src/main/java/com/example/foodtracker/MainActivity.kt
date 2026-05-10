@@ -25,10 +25,13 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val settingsVm: SettingsViewModel = viewModel()
                     val serverUrl by settingsVm.serverUrl.collectAsState()
+                    val dailyCalorieGoal by settingsVm.dailyCalorieGoal.collectAsState()
 
                     FoodTrackerScreen(
                         settingsUrl = serverUrl,
-                        onSettingsUrlChange = { settingsVm.updateServerUrl(it) }
+                        dailyCalorieGoal = dailyCalorieGoal,
+                        onSettingsUrlChange = { settingsVm.updateServerUrl(it) },
+                        onDailyCalorieGoalChange = { settingsVm.updateDailyCalorieGoal(it) }
                     )
                 }
             }

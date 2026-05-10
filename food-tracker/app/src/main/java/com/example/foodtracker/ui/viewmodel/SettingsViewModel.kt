@@ -30,4 +30,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             settingsRepository.setServerUrl(url)
         }
     }
+
+    val dailyCalorieGoal: StateFlow<Int> = settingsRepository.dailyCalorieGoal
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsRepository.DEFAULT_DAILY_CALORIE_GOAL)
+
+    fun updateDailyCalorieGoal(goal: Int) {
+        viewModelScope.launch {
+            settingsRepository.setDailyCalorieGoal(goal)
+        }
+    }
 }

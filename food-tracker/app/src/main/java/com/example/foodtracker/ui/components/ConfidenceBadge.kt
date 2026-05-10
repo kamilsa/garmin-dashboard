@@ -44,9 +44,10 @@ fun ConfidenceBadge(confidence: String?, modifier: Modifier = Modifier) {
         fontWeight = FontWeight.Black,
         letterSpacing = 1.2.sp,
         color = text,
+        maxLines = 1,
+        softWrap = false,
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(bg)
+            .background(bg, RoundedCornerShape(6.dp))
             .padding(horizontal = 6.dp, vertical = 2.dp)
     )
 }

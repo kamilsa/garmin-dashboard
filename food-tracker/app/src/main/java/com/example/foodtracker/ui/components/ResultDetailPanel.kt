@@ -74,12 +74,17 @@ fun ResultDetailPanel(
                             color = primaryText
                         )
                         Spacer(Modifier.height(2.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             entry.servingDescription?.let { serving ->
                                 Text(
                                     serving,
                                     fontSize = 12.sp,
-                                    color = secondaryText
+                                    color = secondaryText,
+                                    maxLines = 1,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
                                 Spacer(Modifier.width(4.dp))
                                 Text("·", fontSize = 12.sp, color = tertiaryText)

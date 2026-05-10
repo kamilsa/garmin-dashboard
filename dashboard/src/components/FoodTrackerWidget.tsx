@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { Upload, X, Loader2, ChevronDown, Trash2, UtensilsCrossed, Eye, Flame, Beef, Wheat, Droplets, Leaf, Pencil, Check, RefreshCcw } from 'lucide-react';
 
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
+const API_BASE_URL = '/api';
 
 // Known vision-capable model families / name fragments
 const VISION_HINTS = ['gemma', 'llava', 'vision', 'minicpm', 'bakllava', 'moondream', 'llama3.2', 'qwen2-vl', 'pixtral', 'cogvlm'];

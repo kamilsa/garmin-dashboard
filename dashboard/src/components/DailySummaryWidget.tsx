@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Footprints, Flame, Zap } from 'lucide-react';
 
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
+const API_BASE_URL = '/api';
 
 const DailySummaryWidget: React.FC = () => {
   const [data, setData] = useState<any>(null);

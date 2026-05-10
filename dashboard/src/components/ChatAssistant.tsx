@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { MessageSquare, Send, X, Bot, User, Loader2, ChevronDown, Square, Maximize2, Minimize2, Brain, Trash2, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
+const API_BASE_URL = '/api';
 
 interface Message {
   role: 'user' | 'assistant';

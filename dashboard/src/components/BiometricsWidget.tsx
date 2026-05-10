@@ -3,7 +3,7 @@ import axios from 'axios';
 import { TrendingUp } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, Tooltip, YAxis } from 'recharts';
 
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
+const API_BASE_URL = '/api';
 
 const BiometricsWidget: React.FC = () => {
   const [data, setData] = useState<any>(null);

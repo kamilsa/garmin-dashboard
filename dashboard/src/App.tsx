@@ -16,7 +16,7 @@ import ChatAssistant from './components/ChatAssistant';
 import FitnessAgeWidget from './components/FitnessAgeWidget';
 import FoodTrackerWidget from './components/FoodTrackerWidget';
 
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
+const API_BASE_URL = '/api';
 
 const App: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useState(false);

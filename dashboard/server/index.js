@@ -14,8 +14,8 @@ const host = '0.0.0.0';
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-const dbPath = path.join(__dirname, '../../garmin_data.db');
-const db = new Database(dbPath, { verbose: console.log });
+const dbPath = process.env.DB_PATH || path.join(__dirname, '../../garmin_data.db');
+const db = new Database(dbPath, { verbose: process.env.NODE_ENV !== 'production' });
 
 // ---- MCP Client Connection ----
 let mcpClient = null;
@@ -125,7 +125,7 @@ function clearMemory() {
 }
 
 // Ollama configuration (direct connection, bypassing LiteLLM which strips tool_calls)
-const OLLAMA_URL = 'http://localhost:11434';
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 const DEFAULT_MODEL = 'glm-4.7-flash';
 
 // Helper: call Ollama's /api/chat endpoint
@@ -165,12 +165,15 @@ async function getOllamaModels() {
   }));
 }
 
-// Read Mapbox token
-let mapboxToken = '';
-try {
-  mapboxToken = fs.readFileSync(path.join(__dirname, '../../mapbox_token'), 'utf8').trim();
-} catch (err) {
-  console.error('Error reading mapbox_token:', err);
+// Read Mapbox token (env var takes precedence)
+let mapboxToken = process.env.MAPBOX_TOKEN || '';
+if (!mapboxToken) {
+  const tokenFile = process.env.MAPBOX_TOKEN_FILE || path.join(__dirname, '../../mapbox_token');
+  try {
+    mapboxToken = fs.readFileSync(tokenFile, 'utf8').trim();
+  } catch (err) {
+    console.error('Error reading mapbox_token:', err.message);
+  }
 }
 
 // ---- Tool Handling (MCP-first with fallback to direct SQLite) ----

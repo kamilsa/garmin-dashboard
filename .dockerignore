@@ -1,0 +1,12 @@
+node_modules
+.venv
+__pycache__
+*.pyc
+.git
+.claude
+*.db
+mapbox_token
+.DS_Store
+*.md
+garmin-health-data
+dist

@@ -76,6 +76,9 @@ fun FoodTrackerScreen(
     var isHistoryExpanded by remember { mutableStateOf(false) }
 
     BackHandler(enabled = isHistoryExpanded) { isHistoryExpanded = false }
+    BackHandler(enabled = state.analysisResult != null && !isHistoryExpanded) {
+        foodVm.closeEntry()
+    }
 
     var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -185,7 +188,10 @@ fun FoodTrackerScreen(
                     savingId = state.savingId,
                     deletingId = state.deletingId,
                     onRefresh = { foodVm.loadFoodLog() },
-                    onEntryClick = { foodVm.openEntry(it) },
+                    onEntryClick = {
+                        foodVm.openEntry(it)
+                        isHistoryExpanded = false
+                    },
                     onEditEntry = { foodVm.startEditingEntry(it) },
                     onDeleteEntry = { foodVm.deleteEntry(it) },
                     modifier = Modifier.fillMaxSize()

@@ -2,6 +2,7 @@ package com.example.foodtracker.ui.viewmodel
 
 import android.app.Application
 import android.net.Uri
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.foodtracker.data.api.AnalyzeRequest
@@ -327,8 +328,17 @@ class FoodTrackerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             repository.getFoodEntry(id).fold(
                 onSuccess = { entry ->
+                    val imageDataUrl = entry.imageThumbnail ?: entry.imageData
+                    val imageUri = imageDataUrl?.let { saveBase64ToCacheUri(it) }
                     _uiState.update {
-                        it.copy(analysisResult = entry, isEditingResult = false, resultDraft = null)
+                        it.copy(
+                            analysisResult = entry,
+                            isEditingResult = false,
+                            resultDraft = null,
+                            imageUri = imageUri,
+                            imageBase64 = entry.imageData?.let { stripDataUrlPrefix(it) },
+                            imageThumbnail = entry.imageThumbnail
+                        )
                     }
                 },
                 onFailure = { e ->
@@ -336,6 +346,44 @@ class FoodTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 }
             )
         }
+    }
+
+    fun closeEntry() {
+        _uiState.update {
+            it.copy(
+                analysisResult = null,
+                isEditingResult = false,
+                resultDraft = null,
+                imageUri = null,
+                imageBase64 = null,
+                imageThumbnail = null,
+                extractedTakenAt = null,
+                error = null
+            )
+        }
+    }
+
+    private fun saveBase64ToCacheUri(dataUrl: String): Uri? {
+        return try {
+            val app = getApplication<Application>()
+            val base64 = stripDataUrlPrefix(dataUrl) ?: return null
+            val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+            val file = java.io.File(app.cacheDir, "food_entry_${System.currentTimeMillis()}.jpg")
+            file.writeBytes(bytes)
+            FileProvider.getUriForFile(
+                app,
+                "${app.packageName}.fileprovider",
+                file
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun stripDataUrlPrefix(dataUrl: String): String? {
+        val commaIndex = dataUrl.indexOf(',')
+        if (commaIndex == -1) return dataUrl
+        return dataUrl.substring(commaIndex + 1)
     }
 
     fun startEditingEntry(id: Int) {

@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Restaurant
@@ -71,6 +73,9 @@ fun FoodTrackerScreen(
     val isDark = isSystemInDarkTheme()
     val context = LocalContext.current
     var showSettings by remember { mutableStateOf(false) }
+    var isHistoryExpanded by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isHistoryExpanded) { isHistoryExpanded = false }
 
     var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -106,157 +111,204 @@ fun FoodTrackerScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Restaurant,
-                            contentDescription = null,
-                            tint = Emerald,
-                            modifier = Modifier.size(24.dp)
+            if (isHistoryExpanded) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            "History",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            color = if (isDark) Color(0xFFF5F5F7) else Color(0xFF1D1D1F)
                         )
-                        Spacer(Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                "Food Tracker",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black,
-                                color = if (isDark) Color(0xFFF5F5F7) else Color(0xFF1D1D1F)
-                            )
-                            Text(
-                                "AI-powered nutrition logging",
-                                fontSize = 10.sp,
-                                color = Color(0xFF86868B)
-                            )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { isHistoryExpanded = false }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Emerald)
                         }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = launchCamera) {
-                        Icon(Icons.Default.AddAPhoto, contentDescription = "Take photo", tint = Emerald)
-                    }
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color(0xFF86868B))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Restaurant,
+                                contentDescription = null,
+                                tint = Emerald,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    "Food Tracker",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = if (isDark) Color(0xFFF5F5F7) else Color(0xFF1D1D1F)
+                                )
+                                Text(
+                                    "AI-powered nutrition logging",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF86868B)
+                                )
+                            }
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = launchCamera) {
+                            Icon(Icons.Default.AddAPhoto, contentDescription = "Take photo", tint = Emerald)
+                        }
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color(0xFF86868B))
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                )
+            }
         },
         containerColor = Color.Transparent
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp)
-        ) {
-            // Upload + Analysis card
-            BentoCard(modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    ImageUploadZone(
-                        imageUri = state.imageUri,
-                        isAnalyzing = state.isAnalyzing,
-                        onTakePhoto = launchCamera,
-                        onPickFromGallery = { galleryLauncher.launch("image/*") },
-                        onClearImage = { foodVm.clearImage() }
-                    )
+        if (isHistoryExpanded) {
+            BentoCard(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 16.dp)
+            ) {
+                FoodEntryList(
+                    entries = state.entries,
+                    isLoading = state.isLoadingLog,
+                    isRefreshing = false,
+                    selectedEntryId = state.analysisResult?.id,
+                    editingEntryId = state.editingEntryId,
+                    savingId = state.savingId,
+                    deletingId = state.deletingId,
+                    onRefresh = { foodVm.loadFoodLog() },
+                    onEntryClick = { foodVm.openEntry(it) },
+                    onEditEntry = { foodVm.startEditingEntry(it) },
+                    onDeleteEntry = { foodVm.deleteEntry(it) },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 32.dp)
+            ) {
+                // Upload + Analysis card
+                BentoCard(modifier = Modifier.fillMaxWidth()) {
+                    Column {
+                        ImageUploadZone(
+                            imageUri = state.imageUri,
+                            isAnalyzing = state.isAnalyzing,
+                            onTakePhoto = launchCamera,
+                            onPickFromGallery = { galleryLauncher.launch("image/*") },
+                            onClearImage = { foodVm.clearImage() }
+                        )
 
-                    if (state.imageUri != null) {
-                        Spacer(Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            HintInput(
-                                value = state.hint,
-                                onValueChange = { foodVm.updateHint(it) },
-                                onDone = { foodVm.analyze() },
-                                modifier = Modifier.weight(1f)
-                            )
-                            AnalyzeButton(
-                                isAnalyzing = state.isAnalyzing,
-                                enabled = state.imageBase64 != null && state.selectedModel.isNotEmpty(),
-                                onClick = { foodVm.analyze() }
+                        if (state.imageUri != null) {
+                            Spacer(Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                HintInput(
+                                    value = state.hint,
+                                    onValueChange = { foodVm.updateHint(it) },
+                                    onDone = { foodVm.analyze() },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                AnalyzeButton(
+                                    isAnalyzing = state.isAnalyzing,
+                                    enabled = state.imageBase64 != null && state.selectedModel.isNotEmpty(),
+                                    onClick = { foodVm.analyze() }
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            ModelPicker(
+                                models = state.availableModels,
+                                selectedModel = state.selectedModel,
+                                isModelsLoading = state.isModelsLoading,
+                                onModelSelected = { foodVm.selectModel(it) }
                             )
                         }
-                        Spacer(Modifier.height(8.dp))
-                        ModelPicker(
-                            models = state.availableModels,
-                            selectedModel = state.selectedModel,
-                            isModelsLoading = state.isModelsLoading,
-                            onModelSelected = { foodVm.selectModel(it) }
-                        )
                     }
                 }
-            }
 
-            Spacer(Modifier.height(12.dp))
-
-            state.error?.let { error ->
-                ErrorBanner(message = error, onDismiss = { foodVm.clearError() }, modifier = Modifier.padding(bottom = 12.dp))
-            }
-
-            state.analysisResult?.let { entry ->
-                BentoCard(modifier = Modifier.fillMaxWidth()) {
-                    ResultDetailPanel(
-                        entry = entry,
-                        isEditing = state.isEditingResult,
-                        draft = state.resultDraft,
-                        isSaving = state.isSavingResult,
-                        isReanalyzing = state.isAnalyzing,
-                        onStartEdit = { foodVm.startEditingResult() },
-                        onSaveEdit = { foodVm.saveResultEdit() },
-                        onCancelEdit = { foodVm.cancelResultEdit() },
-                        onFieldChange = { field, value -> foodVm.updateResultDraftField(field, value) },
-                        onReanalyze = { foodVm.reanalyze() }
-                    )
-                }
                 Spacer(Modifier.height(12.dp))
-            }
 
-            // Today's totals
-            BentoCard(modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    Text(
-                        "TODAY'S TOTALS",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.2.sp,
-                        color = Color(0xFF86868B)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    DailyTotalsBar(totals = state.todayTotals, calorieGoal = dailyCalorieGoal.takeIf { it > 0 })
+                state.error?.let { error ->
+                    ErrorBanner(message = error, onDismiss = { foodVm.clearError() }, modifier = Modifier.padding(bottom = 12.dp))
                 }
-            }
 
-            Spacer(Modifier.height(12.dp))
+                state.analysisResult?.let { entry ->
+                    BentoCard(modifier = Modifier.fillMaxWidth()) {
+                        ResultDetailPanel(
+                            entry = entry,
+                            isEditing = state.isEditingResult,
+                            draft = state.resultDraft,
+                            isSaving = state.isSavingResult,
+                            isReanalyzing = state.isAnalyzing,
+                            onStartEdit = { foodVm.startEditingResult() },
+                            onSaveEdit = { foodVm.saveResultEdit() },
+                            onCancelEdit = { foodVm.cancelResultEdit() },
+                            onFieldChange = { field, value -> foodVm.updateResultDraftField(field, value) },
+                            onReanalyze = { foodVm.reanalyze() }
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
 
-            // History
-            BentoCard(modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    Text(
-                        "HISTORY",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.2.sp,
-                        color = Color(0xFF86868B)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    FoodEntryList(
-                        entries = state.entries,
-                        isLoading = state.isLoadingLog,
-                        isRefreshing = false,
-                        selectedEntryId = state.analysisResult?.id,
-                        editingEntryId = state.editingEntryId,
-                        savingId = state.savingId,
-                        deletingId = state.deletingId,
-                        onRefresh = { foodVm.loadFoodLog() },
-                        onEntryClick = { foodVm.openEntry(it) },
-                        onEditEntry = { foodVm.startEditingEntry(it) },
-                        onDeleteEntry = { foodVm.deleteEntry(it) }
-                    )
+                // Today's totals
+                BentoCard(modifier = Modifier.fillMaxWidth()) {
+                    Column {
+                        Text(
+                            "TODAY'S TOTALS",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.2.sp,
+                            color = Color(0xFF86868B)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        DailyTotalsBar(totals = state.todayTotals, calorieGoal = dailyCalorieGoal.takeIf { it > 0 })
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // History
+                BentoCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { isHistoryExpanded = true }
+                ) {
+                    Column {
+                        Text(
+                            "HISTORY",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.2.sp,
+                            color = Color(0xFF86868B)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        FoodEntryList(
+                            entries = state.entries,
+                            isLoading = state.isLoadingLog,
+                            isRefreshing = false,
+                            selectedEntryId = state.analysisResult?.id,
+                            editingEntryId = state.editingEntryId,
+                            savingId = state.savingId,
+                            deletingId = state.deletingId,
+                            onRefresh = { foodVm.loadFoodLog() },
+                            onEntryClick = { foodVm.openEntry(it) },
+                            onEditEntry = { foodVm.startEditingEntry(it) },
+                            onDeleteEntry = { foodVm.deleteEntry(it) }
+                        )
+                    }
                 }
             }
         }

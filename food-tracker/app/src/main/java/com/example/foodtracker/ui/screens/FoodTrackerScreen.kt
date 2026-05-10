@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -314,42 +315,46 @@ fun FoodTrackerScreen(
 
                 // History
                 BentoCard(modifier = Modifier.fillMaxWidth()) {
-                    Column {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { isHistoryExpanded = true }
-                                .padding(vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "HISTORY",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.2.sp,
-                                color = Color(0xFF86868B)
-                            )
-                            Icon(
-                                Icons.Default.OpenInFull,
-                                contentDescription = "Expand history",
-                                tint = Color(0xFF86868B),
-                                modifier = Modifier.size(12.dp)
+                    Box {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "HISTORY",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 1.2.sp,
+                                    color = Color(0xFF86868B)
+                                )
+                                Icon(
+                                    Icons.Default.OpenInFull,
+                                    contentDescription = null,
+                                    tint = Color(0xFF86868B),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            FoodEntryList(
+                                entries = state.entries,
+                                isLoading = state.isLoadingLog,
+                                isRefreshing = false,
+                                selectedEntryId = state.analysisResult?.id,
+                                editingEntryId = state.editingEntryId,
+                                savingId = state.savingId,
+                                deletingId = state.deletingId,
+                                onRefresh = { foodVm.loadFoodLog() },
+                                onEntryClick = { foodVm.openEntry(it) },
+                                onEditEntry = { foodVm.editEntry(it) },
+                                onDeleteEntry = { foodVm.deleteEntry(it) }
                             )
                         }
-                        Spacer(Modifier.height(8.dp))
-                        FoodEntryList(
-                            entries = state.entries,
-                            isLoading = state.isLoadingLog,
-                            isRefreshing = false,
-                            selectedEntryId = state.analysisResult?.id,
-                            editingEntryId = state.editingEntryId,
-                            savingId = state.savingId,
-                            deletingId = state.deletingId,
-                            onRefresh = { foodVm.loadFoodLog() },
-                            onEntryClick = { foodVm.openEntry(it) },
-                            onEditEntry = { foodVm.editEntry(it) },
-                            onDeleteEntry = { foodVm.deleteEntry(it) }
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable { isHistoryExpanded = true }
                         )
                     }
                 }

@@ -15,12 +15,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Restaurant
@@ -32,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -79,7 +82,12 @@ fun FoodTrackerScreen(
 
     BackHandler(enabled = isHistoryExpanded) { isHistoryExpanded = false }
     BackHandler(enabled = state.analysisResult != null && !isHistoryExpanded) {
+        val shouldExpand = foodVm.pendingHistoryExpand
+        foodVm.pendingHistoryExpand = false
         foodVm.closeEntry()
+        if (shouldExpand) {
+            isHistoryExpanded = true
+        }
     }
 
     var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -196,10 +204,12 @@ fun FoodTrackerScreen(
                     onEntryClick = {
                         foodVm.openEntry(it)
                         isHistoryExpanded = false
+                        foodVm.pendingHistoryExpand = true
                     },
                     onEditEntry = {
                         foodVm.editEntry(it)
                         isHistoryExpanded = false
+                        foodVm.pendingHistoryExpand = true
                     },
                     onDeleteEntry = { foodVm.deleteEntry(it) },
                     modifier = Modifier.fillMaxSize()
@@ -303,18 +313,32 @@ fun FoodTrackerScreen(
                 Spacer(Modifier.height(12.dp))
 
                 // History
-                BentoCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { isHistoryExpanded = true }
-                ) {
+                BentoCard(modifier = Modifier.fillMaxWidth()) {
                     Column {
-                        Text(
-                            "HISTORY",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.2.sp,
-                            color = Color(0xFF86868B)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "HISTORY",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.2.sp,
+                                color = Color(0xFF86868B)
+                            )
+                            IconButton(
+                                onClick = { isHistoryExpanded = true },
+                                modifier = Modifier.size(18.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.OpenInFull,
+                                    contentDescription = "Expand history",
+                                    tint = Color(0xFF86868B),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
                         Spacer(Modifier.height(8.dp))
                         FoodEntryList(
                             entries = state.entries,

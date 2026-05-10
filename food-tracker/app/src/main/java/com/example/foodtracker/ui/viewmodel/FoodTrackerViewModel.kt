@@ -489,6 +489,8 @@ class FoodTrackerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    var pendingHistoryExpand = false
+
     fun clearError() {
         _uiState.update { it.copy(error = null) }
     }

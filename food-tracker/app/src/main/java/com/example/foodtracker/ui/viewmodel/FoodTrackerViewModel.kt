@@ -56,6 +56,8 @@ data class FoodTrackerUiState(
     // Entry list
     val entries: List<FoodEntry> = emptyList(),
     val todayTotals: DailyTotal? = null,
+    val allTotals: List<DailyTotal> = emptyList(),
+    val weekOffset: Int = 0,
     val isLoadingLog: Boolean = true,
     val editingEntryId: Int? = null,
     val entryDraft: FoodEditDraft? = null,
@@ -123,7 +125,7 @@ class FoodTrackerViewModel(application: Application) : AndroidViewModel(applicat
     fun loadFoodLog() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingLog = true) }
-            repository.getFoodEntries().fold(
+            repository.getFoodEntries(days = 60).fold(
                 onSuccess = { response ->
                     val today = java.time.LocalDate.now()
                         .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
@@ -131,6 +133,7 @@ class FoodTrackerViewModel(application: Application) : AndroidViewModel(applicat
                         it.copy(
                             entries = response.entries,
                             todayTotals = response.totals.find { t -> t.day == today },
+                            allTotals = response.totals,
                             isLoadingLog = false
                         )
                     }
@@ -145,6 +148,10 @@ class FoodTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 }
             )
         }
+    }
+
+    fun changeWeek(delta: Int) {
+        _uiState.update { it.copy(weekOffset = it.weekOffset + delta) }
     }
 
     fun onImageSelected(uri: Uri) {

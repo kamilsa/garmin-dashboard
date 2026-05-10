@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +53,7 @@ import com.example.foodtracker.ui.components.ErrorBanner
 import com.example.foodtracker.ui.components.FoodEntryList
 import com.example.foodtracker.ui.components.HintInput
 import com.example.foodtracker.ui.components.ImageUploadZone
+import com.example.foodtracker.ui.components.WeeklyStats
 import com.example.foodtracker.ui.components.ModelPicker
 import com.example.foodtracker.ui.components.ResultDetailPanel
 import com.example.foodtracker.ui.components.SettingsDialog
@@ -161,6 +163,9 @@ fun FoodTrackerScreen(
                         IconButton(onClick = launchCamera) {
                             Icon(Icons.Default.AddAPhoto, contentDescription = "Take photo", tint = Emerald)
                         }
+                        IconButton(onClick = { galleryLauncher.launch("image/*") }) {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = "Pick from gallery", tint = Emerald)
+                        }
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color(0xFF86868B))
                         }
@@ -211,15 +216,22 @@ fun FoodTrackerScreen(
                 // Upload + Analysis card
                 BentoCard(modifier = Modifier.fillMaxWidth()) {
                     Column {
-                        ImageUploadZone(
-                            imageUri = state.imageUri,
-                            isAnalyzing = state.isAnalyzing,
-                            onTakePhoto = launchCamera,
-                            onPickFromGallery = { galleryLauncher.launch("image/*") },
-                            onClearImage = { foodVm.clearImage() }
-                        )
+                        if (state.imageUri == null) {
+                            WeeklyStats(
+                                allTotals = state.allTotals,
+                                weekOffset = state.weekOffset,
+                                calorieGoal = dailyCalorieGoal.takeIf { it > 0 },
+                                onWeekChange = { foodVm.changeWeek(it) }
+                            )
+                        } else {
+                            ImageUploadZone(
+                                imageUri = state.imageUri,
+                                isAnalyzing = state.isAnalyzing,
+                                onTakePhoto = launchCamera,
+                                onPickFromGallery = { galleryLauncher.launch("image/*") },
+                                onClearImage = { foodVm.clearImage() }
+                            )
 
-                        if (state.imageUri != null) {
                             Spacer(Modifier.height(12.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),

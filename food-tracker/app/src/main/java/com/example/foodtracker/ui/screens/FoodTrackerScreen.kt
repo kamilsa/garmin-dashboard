@@ -316,7 +316,10 @@ fun FoodTrackerScreen(
                 BentoCard(modifier = Modifier.fillMaxWidth()) {
                     Column {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isHistoryExpanded = true }
+                                .padding(vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -327,17 +330,12 @@ fun FoodTrackerScreen(
                                 letterSpacing = 1.2.sp,
                                 color = Color(0xFF86868B)
                             )
-                            IconButton(
-                                onClick = { isHistoryExpanded = true },
-                                modifier = Modifier.size(18.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.OpenInFull,
-                                    contentDescription = "Expand history",
-                                    tint = Color(0xFF86868B),
-                                    modifier = Modifier.size(12.dp)
-                                )
-                            }
+                            Icon(
+                                Icons.Default.OpenInFull,
+                                contentDescription = "Expand history",
+                                tint = Color(0xFF86868B),
+                                modifier = Modifier.size(12.dp)
+                            )
                         }
                         Spacer(Modifier.height(8.dp))
                         FoodEntryList(

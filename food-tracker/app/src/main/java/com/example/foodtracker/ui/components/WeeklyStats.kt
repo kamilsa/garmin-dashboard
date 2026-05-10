@@ -47,20 +47,22 @@ fun WeeklyStats(
     val today = LocalDate.now()
     val scope = rememberCoroutineScope()
 
+    val lastPage = WEEKS_COUNT - 1
+
     val pagerState = rememberPagerState(
-        initialPage = (-weekOffset).coerceIn(0, WEEKS_COUNT - 1),
+        initialPage = (weekOffset + lastPage).coerceIn(0, lastPage),
         pageCount = { WEEKS_COUNT }
     )
 
     var initialPageSettled by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState.currentPage) {
         if (initialPageSettled) {
-            onWeekChange(-pagerState.currentPage)
+            onWeekChange(pagerState.currentPage - lastPage)
         }
         initialPageSettled = true
     }
 
-    val currentOffset = -pagerState.currentPage
+    val currentOffset = pagerState.currentPage - lastPage
     val monday = today.with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
         .plusWeeks(currentOffset.toLong())
     val weekDays = (0..6).map { monday.plusDays(it.toLong()) }
@@ -79,16 +81,17 @@ fun WeeklyStats(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Left arrow: go to older weeks (lower page index, past)
             IconButton(
                 onClick = {
-                    val target = (pagerState.currentPage + 1).coerceAtMost(WEEKS_COUNT - 1)
+                    val target = (pagerState.currentPage - 1).coerceAtLeast(0)
                     scope.launch { pagerState.animateScrollToPage(target) }
                 },
-                enabled = pagerState.currentPage < WEEKS_COUNT - 1,
+                enabled = pagerState.currentPage > 0,
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous Week",
-                    tint = if (pagerState.currentPage < WEEKS_COUNT - 1) Emerald else Color.Gray.copy(alpha = 0.3f))
+                    tint = if (pagerState.currentPage > 0) Emerald else Color.Gray.copy(alpha = 0.3f))
             }
 
             Text(
@@ -98,18 +101,19 @@ fun WeeklyStats(
                 color = if (isDark) Color(0xFFF5F5F7) else Color(0xFF1D1D1F)
             )
 
+            // Right arrow: go to more recent weeks (higher page index, toward today)
             IconButton(
                 onClick = {
-                    val target = (pagerState.currentPage - 1).coerceAtLeast(0)
+                    val target = (pagerState.currentPage + 1).coerceAtMost(lastPage)
                     scope.launch { pagerState.animateScrollToPage(target) }
                 },
-                enabled = pagerState.currentPage > 0,
+                enabled = pagerState.currentPage < lastPage,
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = "Next Week",
-                    tint = if (pagerState.currentPage > 0) Emerald else Color.Gray.copy(alpha = 0.3f)
+                    tint = if (pagerState.currentPage < lastPage) Emerald else Color.Gray.copy(alpha = 0.3f)
                 )
             }
         }
@@ -121,8 +125,9 @@ fun WeeklyStats(
             modifier = Modifier.fillMaxWidth().height(120.dp),
             beyondViewportPageCount = 1
         ) { page ->
+            val pageOffset = page - lastPage
             val pageMonday = today.with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
-                .plusWeeks((-page).toLong())
+                .plusWeeks(pageOffset.toLong())
             val pageDays = (0..6).map { pageMonday.plusDays(it.toLong()) }
 
             val maxCalories = (allTotals.maxOfOrNull { it.totalCalories ?: 0.0 } ?: 2500.0)

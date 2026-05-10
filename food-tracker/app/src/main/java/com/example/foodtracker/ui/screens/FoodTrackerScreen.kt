@@ -1,6 +1,9 @@
 package com.example.foodtracker.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -38,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.foodtracker.ui.components.AnalyzeButton
@@ -67,10 +71,31 @@ fun FoodTrackerScreen(
     var showSettings by remember { mutableStateOf(false) }
 
     var cameraImageUri by remember { mutableStateOf<Uri?>(null) }
+
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { success ->
         if (success) cameraImageUri?.let { foodVm.onImageSelected(it) }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            cameraImageUri = createTempImageUri(context)
+            cameraLauncher.launch(cameraImageUri!!)
+        } else {
+            Toast.makeText(context, "Camera permission is needed to take food photos", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val launchCamera: () -> Unit = {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            cameraImageUri = createTempImageUri(context)
+            cameraLauncher.launch(cameraImageUri!!)
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
     }
 
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -105,10 +130,7 @@ fun FoodTrackerScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
-                        cameraImageUri = createTempImageUri(context)
-                        cameraLauncher.launch(cameraImageUri!!)
-                    }) {
+                    IconButton(onClick = launchCamera) {
                         Icon(Icons.Default.AddAPhoto, contentDescription = "Take photo", tint = Emerald)
                     }
                     IconButton(onClick = { showSettings = true }) {
@@ -133,10 +155,7 @@ fun FoodTrackerScreen(
                     ImageUploadZone(
                         imageUri = state.imageUri,
                         isAnalyzing = state.isAnalyzing,
-                        onTakePhoto = {
-                            cameraImageUri = createTempImageUri(context)
-                            cameraLauncher.launch(cameraImageUri!!)
-                        },
+                        onTakePhoto = launchCamera,
                         onPickFromGallery = { galleryLauncher.launch("image/*") },
                         onClearImage = { foodVm.clearImage() }
                     )

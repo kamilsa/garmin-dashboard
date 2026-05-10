@@ -15,7 +15,7 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 const dbPath = path.join(__dirname, '../../garmin_data.db');
-const db = new Database(dbPath, { verbose: console.log });
+const db = new Database(dbPath);
 
 // ---- MCP Client Connection ----
 let mcpClient = null;
@@ -86,6 +86,7 @@ db.exec(`
     image_thumbnail TEXT,
     image_data TEXT,
     model_used TEXT,
+    taken_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
@@ -97,23 +98,66 @@ if (!foodLogColumns.some(column => column.name === 'image_data')) {
 if (!foodLogColumns.some(column => column.name === 'model_used')) {
   db.exec('ALTER TABLE food_log ADD COLUMN model_used TEXT');
 }
+if (!foodLogColumns.some(column => column.name === 'taken_at')) {
+  db.exec('ALTER TABLE food_log ADD COLUMN taken_at DATETIME');
+}
+db.prepare('UPDATE food_log SET taken_at = created_at WHERE taken_at IS NULL').run();
 
-const FOOD_LOG_SELECT_COLUMNS = 'id, food_name, description, calories, protein_g, carbs_g, fat_g, fiber_g, serving_description, confidence, raw_analysis, image_thumbnail, model_used, created_at';
+const FOOD_LOG_EFFECTIVE_TIMESTAMP = 'COALESCE(taken_at, created_at)';
+const FOOD_LOG_SELECT_COLUMNS = 'id, food_name, description, calories, protein_g, carbs_g, fat_g, fiber_g, serving_description, confidence, raw_analysis, image_thumbnail, model_used, taken_at, created_at';
 const FOOD_LOG_SELECT_COLUMNS_WITH_IMAGE = `${FOOD_LOG_SELECT_COLUMNS}, image_data`;
 const getFoodLogSelectColumns = (includeImageData = false) => includeImageData ? FOOD_LOG_SELECT_COLUMNS_WITH_IMAGE : FOOD_LOG_SELECT_COLUMNS;
 const getFoodEntryById = (id, includeImageData = false) => db.prepare(`SELECT ${getFoodLogSelectColumns(includeImageData)} FROM food_log WHERE id = ?`).get(id);
 const getFoodEntries = (days, limit) => db.prepare(`
   SELECT ${FOOD_LOG_SELECT_COLUMNS}
   FROM food_log
-  WHERE created_at >= datetime('now', ? || ' days')
-  ORDER BY created_at DESC
+  WHERE ${FOOD_LOG_EFFECTIVE_TIMESTAMP} >= datetime('now', ? || ' days')
+  ORDER BY ${FOOD_LOG_EFFECTIVE_TIMESTAMP} DESC
   LIMIT ?
 `).all(-days, limit);
 
-function getMemoryMessages(limit = 50) {
-  return db.prepare(
+function formatUtcDateTime(date) {
+  const pad = value => String(value).padStart(2, '0');
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
+}
+
+function normalizeFoodTakenAt(value) {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string') {
+    throw new Error('takenAt must be a valid datetime string');
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const sqliteMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (sqliteMatch) {
+    const [, year, month, day, hours, minutes, seconds = '00'] = sqliteMatch;
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('takenAt must be a valid datetime string');
+  }
+
+  return formatUtcDateTime(parsed);
+}
+
+function getMemoryMessages(limit = 50, maxChars = 16000) {
+  const rows = db.prepare(
     'SELECT role, content FROM chat_memory ORDER BY id DESC LIMIT ?'
   ).all(limit).reverse();
+  // Keep the most recent messages that fit within the character budget
+  let totalChars = 0;
+  const trimmed = [];
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const len = (rows[i].content || '').length;
+    if (totalChars + len > maxChars) break;
+    totalChars += len;
+    trimmed.unshift(rows[i]);
+  }
+  return trimmed;
 }
 
 function saveMemoryMessage(role, content) {
@@ -152,17 +196,31 @@ async function ollamaChat(model, messages, tools = null, signal = null) {
   return resp.json();
 }
 
+// Cloud models always available via Ollama cloud routing
+const CLOUD_MODELS = [
+  { name: 'qwen3.5:cloud', size: 0, parameterSize: null, family: 'qwen3' },
+  { name: 'gemma4:31b-cloud', size: 0, parameterSize: null, family: 'gemma4' },
+];
+
 // Helper: fetch available Ollama models
 async function getOllamaModels() {
-  const resp = await fetch(`${OLLAMA_URL}/api/tags`);
-  if (!resp.ok) return [];
-  const data = await resp.json();
-  return (data.models || []).map(m => ({
-    name: m.name,
-    size: m.size,
-    parameterSize: m.details?.parameter_size || null,
-    family: m.details?.family || null,
-  }));
+  let localModels = [];
+  try {
+    const resp = await fetch(`${OLLAMA_URL}/api/tags`);
+    if (resp.ok) {
+      const data = await resp.json();
+      localModels = (data.models || []).map(m => ({
+        name: m.name,
+        size: m.size,
+        parameterSize: m.details?.parameter_size || null,
+        family: m.details?.family || null,
+      }));
+    }
+  } catch { /* Ollama offline */ }
+  // Merge cloud models, skipping any that are already pulled locally
+  const localNames = new Set(localModels.map(m => m.name));
+  const cloudModels = CLOUD_MODELS.filter(m => !localNames.has(m.name));
+  return [...localModels, ...cloudModels];
 }
 
 // Read Mapbox token
@@ -304,23 +362,25 @@ async function handleToolCall(name, args, mcpEnabled = true) {
 console.log(`Tools ready (${mcpConnected ? 'MCP server' : 'direct SQLite fallback'})`);
 
 // ---- Food Summary Helper ----
+const FOOD_SUMMARY_COLUMNS = 'id, food_name, description, calories, protein_g, carbs_g, fat_g, fiber_g, serving_description, confidence, taken_at, created_at';
+
 function getFoodSummary({ days, date }) {
   try {
     let entries, summary;
     if (date) {
       entries = db.prepare(
-        "SELECT * FROM food_log WHERE date(created_at) = ? ORDER BY created_at DESC"
+        `SELECT ${FOOD_SUMMARY_COLUMNS} FROM food_log WHERE date(${FOOD_LOG_EFFECTIVE_TIMESTAMP}) = ? ORDER BY ${FOOD_LOG_EFFECTIVE_TIMESTAMP} DESC`
       ).all(date);
       summary = db.prepare(
-        "SELECT SUM(calories) as total_calories, SUM(protein_g) as total_protein, SUM(carbs_g) as total_carbs, SUM(fat_g) as total_fat, COUNT(*) as entry_count FROM food_log WHERE date(created_at) = ?"
+        `SELECT SUM(calories) as total_calories, SUM(protein_g) as total_protein, SUM(carbs_g) as total_carbs, SUM(fat_g) as total_fat, COUNT(*) as entry_count FROM food_log WHERE date(${FOOD_LOG_EFFECTIVE_TIMESTAMP}) = ?`
       ).get(date);
     } else {
       const lookback = days || 1;
       entries = db.prepare(
-        "SELECT * FROM food_log WHERE created_at >= datetime('now', ? || ' days') ORDER BY created_at DESC"
+        `SELECT ${FOOD_SUMMARY_COLUMNS} FROM food_log WHERE ${FOOD_LOG_EFFECTIVE_TIMESTAMP} >= datetime('now', ? || ' days') ORDER BY ${FOOD_LOG_EFFECTIVE_TIMESTAMP} DESC`
       ).all(-lookback);
       summary = db.prepare(
-        "SELECT SUM(calories) as total_calories, SUM(protein_g) as total_protein, SUM(carbs_g) as total_carbs, SUM(fat_g) as total_fat, COUNT(*) as entry_count FROM food_log WHERE created_at >= datetime('now', ? || ' days')"
+        `SELECT SUM(calories) as total_calories, SUM(protein_g) as total_protein, SUM(carbs_g) as total_carbs, SUM(fat_g) as total_fat, COUNT(*) as entry_count FROM food_log WHERE ${FOOD_LOG_EFFECTIVE_TIMESTAMP} >= datetime('now', ? || ' days')`
       ).get(-lookback);
     }
     return { summary, entries };
@@ -440,7 +500,7 @@ Database Schema Overview:
 - steps: 15-min interval step counts (timestamp, value).
 - vo2_max: VO2 max measurements (date, vo2_max_generic).
 - user_profile: user settings and traits (gender, weight in grams, height in cm).
-- food_log: food tracking entries from image analysis (food_name, description, calories, protein_g, carbs_g, fat_g, fiber_g, serving_description, confidence, created_at). Query this to answer questions about nutrition, diet, or to cross-reference with activity data.
+- food_log: food tracking entries from image analysis (food_name, description, calories, protein_g, carbs_g, fat_g, fiber_g, serving_description, confidence, taken_at, created_at). Prefer taken_at for when the food photo was taken, and created_at for when the entry was saved. Query this to answer questions about nutrition, diet, or to cross-reference with activity data.
 
 Guidelines:
 1. Use the 'read_query' tool to query data if needed to answer the user's question.
@@ -469,10 +529,13 @@ Guidelines:
       }
     }
 
-    currentMessages.push(...messages.map(m => ({
+    // Keep only the most recent conversation messages to avoid exceeding Ollama's body size limit.
+    // Memory (above) already provides older context.
+    const recentMessages = messages.slice(-20).map(m => ({
       role: m.role,
       content: m.content
-    })));
+    }));
+    currentMessages.push(...recentMessages);
 
     // 1. Initial call to LLM via Ollama
     let result = await ollamaChat(model, currentMessages, getActiveTools(mcpEnabled), ac.signal);
@@ -497,10 +560,14 @@ Guidelines:
         
         const toolResult = await handleToolCall(toolName, toolArgs, mcpEnabled);
         
-        // Ollama expects tool results in this format
+        // Ollama expects tool results in this format; cap size to avoid body-too-large errors
+        let toolResultStr = JSON.stringify(toolResult);
+        if (toolResultStr.length > 32000) {
+          toolResultStr = toolResultStr.slice(0, 32000) + '… (truncated)';
+        }
         currentMessages.push({
           role: 'tool',
-          content: JSON.stringify(toolResult),
+          content: toolResultStr,
         });
       }
 
@@ -794,8 +861,8 @@ app.get('/api/fitness-age', (req, res) => {
 // Get memory status and recent messages
 app.get('/api/chat/memory', (req, res) => {
   try {
-    const messages = getMemoryMessages(50);
-    res.json({ enabled: true, messageCount: messages.length, messages });
+    const row = db.prepare('SELECT COUNT(*) as count FROM chat_memory').get();
+    res.json({ enabled: true, messageCount: row.count });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -824,7 +891,7 @@ app.get('/api/chat/mcp-status', (req, res) => {
 
 // Analyze a food image using an Ollama vision model and store the result
 app.post('/api/food/analyze', async (req, res) => {
-  const { image, model, thumbnail, entryId } = req.body;
+  const { image, model, thumbnail, entryId, hint, takenAt } = req.body;
 
   if (!image && !entryId) {
     return res.status(400).json({ error: 'image is required' });
@@ -840,6 +907,13 @@ app.post('/api/food/analyze', async (req, res) => {
     sourceImage = existingEntry?.image_data || null;
   }
 
+  let normalizedTakenAt;
+  try {
+    normalizedTakenAt = normalizeFoodTakenAt(takenAt);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
   if (!sourceImage) {
     return res.status(400).json({ error: 'Original image is not available for reanalysis' });
   }
@@ -853,9 +927,12 @@ app.post('/api/food/analyze', async (req, res) => {
   res.on('close', () => { if (!res.writableEnded) ac.abort(); });
 
   try {
+    const promptContent = hint
+      ? `${FOOD_ANALYSIS_PROMPT}\n\nUser hint about this food: ${hint}`
+      : FOOD_ANALYSIS_PROMPT;
     const messages = [{
       role: 'user',
-      content: FOOD_ANALYSIS_PROMPT,
+      content: promptContent,
       images: [sourceImage],
     }];
 
@@ -890,7 +967,7 @@ app.post('/api/food/analyze', async (req, res) => {
 
       db.prepare(`
         UPDATE food_log
-        SET food_name = ?, description = ?, calories = ?, protein_g = ?, carbs_g = ?, fat_g = ?, fiber_g = ?, serving_description = ?, confidence = ?, raw_analysis = ?, image_thumbnail = ?, image_data = ?, model_used = ?
+        SET food_name = ?, description = ?, calories = ?, protein_g = ?, carbs_g = ?, fat_g = ?, fiber_g = ?, serving_description = ?, confidence = ?, raw_analysis = ?, image_thumbnail = ?, image_data = ?, model_used = ?, taken_at = ?
         WHERE id = ?
       `).run(
         nutritionData.food_name || 'Unknown food',
@@ -906,6 +983,7 @@ app.post('/api/food/analyze', async (req, res) => {
         thumbnail || targetEntry.image_thumbnail || null,
         sourceImage,
         model,
+        targetEntry.taken_at || normalizedTakenAt,
         entryId
       );
 
@@ -913,8 +991,8 @@ app.post('/api/food/analyze', async (req, res) => {
     }
 
     const stmt = db.prepare(`
-      INSERT INTO food_log (food_name, description, calories, protein_g, carbs_g, fat_g, fiber_g, serving_description, confidence, raw_analysis, image_thumbnail, image_data, model_used)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO food_log (food_name, description, calories, protein_g, carbs_g, fat_g, fiber_g, serving_description, confidence, raw_analysis, image_thumbnail, image_data, model_used, taken_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       nutritionData.food_name || 'Unknown food',
@@ -929,7 +1007,8 @@ app.post('/api/food/analyze', async (req, res) => {
       rawText,
       thumbnail || null,
       sourceImage,
-      model
+      model,
+      normalizedTakenAt
     );
 
     db.prepare('UPDATE food_log SET model_used = ? WHERE id = ?').run(model, info.lastInsertRowid);
@@ -951,14 +1030,14 @@ app.get('/api/food', (req, res) => {
     const entries = getFoodEntries(days, limit);
 
     const totals = db.prepare(`
-      SELECT date(created_at) as day,
+      SELECT date(${FOOD_LOG_EFFECTIVE_TIMESTAMP}) as day,
              SUM(calories) as total_calories,
              SUM(protein_g) as total_protein,
              SUM(carbs_g) as total_carbs,
              SUM(fat_g) as total_fat,
              COUNT(*) as entry_count
       FROM food_log
-      WHERE created_at >= datetime('now', ? || ' days')
+      WHERE ${FOOD_LOG_EFFECTIVE_TIMESTAMP} >= datetime('now', ? || ' days')
       GROUP BY day
       ORDER BY day DESC
     `).all(-days);

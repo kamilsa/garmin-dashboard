@@ -5,7 +5,7 @@ import { Upload, X, Loader2, ChevronDown, Trash2, UtensilsCrossed, Eye, Flame, B
 const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001/api`;
 
 // Known vision-capable model families / name fragments
-const VISION_HINTS = ['gemma', 'llava', 'vision', 'minicpm', 'bakllava', 'moondream', 'llama3.2', 'qwen2-vl', 'pixtral', 'cogvlm'];
+const VISION_HINTS = ['gemma', 'llava', 'vision', 'minicpm', 'bakllava', 'moondream', 'llama3.2', 'qwen2-vl', 'qwen3.5', 'pixtral', 'cogvlm'];
 
 interface FoodEntry {
   id: number;
@@ -22,6 +22,7 @@ interface FoodEntry {
   image_thumbnail: string | null;
   image_data?: string | null;
   model_used?: string | null;
+  taken_at: string | null;
   created_at: string;
 }
 
@@ -74,6 +75,8 @@ function isVisionModel(model: OllamaModel): boolean {
 
 function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return 'Unknown time';
+
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);
@@ -85,6 +88,160 @@ function formatRelativeTime(dateStr: string): string {
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays === 1) return 'Yesterday';
   return `${diffDays}d ago`;
+}
+
+function getEntryEventTime(entry: Pick<FoodEntry, 'taken_at' | 'created_at'>): string {
+  return entry.taken_at || entry.created_at;
+}
+
+function parseExifDateString(value: string): string | null {
+  const match = value.trim().match(/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+  if (!match) return null;
+
+  const [, year, month, day, hours, minutes, seconds] = match;
+  const localDate = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hours),
+    Number(minutes),
+    Number(seconds)
+  );
+
+  return Number.isNaN(localDate.getTime()) ? null : localDate.toISOString();
+}
+
+function readAsciiValue(view: DataView, offset: number, count: number): string | null {
+  if (offset < 0 || count <= 0 || offset + count > view.byteLength) return null;
+
+  const chars: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const byte = view.getUint8(offset + i);
+    if (byte === 0) break;
+    chars.push(String.fromCharCode(byte));
+  }
+
+  return chars.length > 0 ? chars.join('') : null;
+}
+
+function findIfdTagValue(view: DataView, tiffStart: number, ifdOffset: number, littleEndian: boolean, tagId: number): string | null {
+  const directoryOffset = tiffStart + ifdOffset;
+  if (directoryOffset < 0 || directoryOffset + 2 > view.byteLength) return null;
+
+  const entryCount = view.getUint16(directoryOffset, littleEndian);
+  for (let i = 0; i < entryCount; i++) {
+    const entryOffset = directoryOffset + 2 + (i * 12);
+    if (entryOffset + 12 > view.byteLength) return null;
+
+    const currentTag = view.getUint16(entryOffset, littleEndian);
+    if (currentTag !== tagId) continue;
+
+    const type = view.getUint16(entryOffset + 2, littleEndian);
+    const count = view.getUint32(entryOffset + 4, littleEndian);
+    if (type !== 2 || count === 0) return null;
+
+    if (count <= 4) {
+      return readAsciiValue(view, entryOffset + 8, count);
+    }
+
+    const valueOffset = view.getUint32(entryOffset + 8, littleEndian);
+    return readAsciiValue(view, tiffStart + valueOffset, count);
+  }
+
+  return null;
+}
+
+function findIfdPointer(view: DataView, tiffStart: number, ifdOffset: number, littleEndian: boolean, tagId: number): number | null {
+  const directoryOffset = tiffStart + ifdOffset;
+  if (directoryOffset < 0 || directoryOffset + 2 > view.byteLength) return null;
+
+  const entryCount = view.getUint16(directoryOffset, littleEndian);
+  for (let i = 0; i < entryCount; i++) {
+    const entryOffset = directoryOffset + 2 + (i * 12);
+    if (entryOffset + 12 > view.byteLength) return null;
+
+    if (view.getUint16(entryOffset, littleEndian) === tagId) {
+      return view.getUint32(entryOffset + 8, littleEndian);
+    }
+  }
+
+  return null;
+}
+
+function extractTakenAtFromTiffView(view: DataView, tiffStart: number): string | null {
+  if (tiffStart + 8 > view.byteLength) return null;
+
+  const byteOrder = readAsciiValue(view, tiffStart, 2);
+  const littleEndian = byteOrder === 'II';
+  if (!littleEndian && byteOrder !== 'MM') return null;
+  if (view.getUint16(tiffStart + 2, littleEndian) !== 42) return null;
+
+  const ifd0Offset = view.getUint32(tiffStart + 4, littleEndian);
+  const exifIfdOffset = findIfdPointer(view, tiffStart, ifd0Offset, littleEndian, 0x8769);
+
+  const rawValue = (exifIfdOffset != null && (
+    findIfdTagValue(view, tiffStart, exifIfdOffset, littleEndian, 0x9003)
+    || findIfdTagValue(view, tiffStart, exifIfdOffset, littleEndian, 0x9004)
+  )) || findIfdTagValue(view, tiffStart, ifd0Offset, littleEndian, 0x0132);
+
+  return rawValue ? parseExifDateString(rawValue) : null;
+}
+
+function extractTakenAtFromJpegView(view: DataView): string | null {
+  let offset = 2;
+
+  while (offset + 4 <= view.byteLength) {
+    if (view.getUint8(offset) !== 0xFF) {
+      offset += 1;
+      continue;
+    }
+
+    const marker = view.getUint8(offset + 1);
+    if (marker === 0xDA || marker === 0xD9) break;
+
+    const segmentLength = view.getUint16(offset + 2, false);
+    if (segmentLength < 2) break;
+
+    const segmentStart = offset + 4;
+    const segmentEnd = offset + 2 + segmentLength;
+    if (segmentEnd > view.byteLength) break;
+
+    if (
+      marker === 0xE1
+      && segmentLength >= 8
+      && readAsciiValue(view, segmentStart, 4) === 'Exif'
+      && view.getUint8(segmentStart + 4) === 0
+      && view.getUint8(segmentStart + 5) === 0
+    ) {
+      return extractTakenAtFromTiffView(view, segmentStart + 6);
+    }
+
+    offset = segmentEnd;
+  }
+
+  return null;
+}
+
+async function extractTakenAtFromImage(file: File): Promise<string | null> {
+  const view = new DataView(await file.arrayBuffer());
+
+  if (file.type === 'image/jpeg') {
+    return extractTakenAtFromJpegView(view);
+  }
+
+  if (file.type === 'image/tiff') {
+    return extractTakenAtFromTiffView(view, 0);
+  }
+
+  return null;
+}
+
+function buildStoredImageDataUrl(imageData: string | null | undefined): string | null {
+  return imageData ? `data:image/jpeg;base64,${imageData}` : null;
+}
+
+function canExtractTakenAt(file: File): boolean {
+  return file.type === 'image/jpeg' || file.type === 'image/tiff';
 }
 
 function confidenceBadgeClass(confidence: string | null): string {
@@ -105,6 +262,9 @@ const FoodTrackerWidget: React.FC = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [imageThumbnail, setImageThumbnail] = useState<string | null>(null);
+  const [selectedTakenAt, setSelectedTakenAt] = useState<string | null>(null);
+
+  const [hint, setHint] = useState('');
 
   // Analysis state
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -127,14 +287,16 @@ const FoodTrackerWidget: React.FC = () => {
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch food log
   const fetchFoodLog = useCallback(async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/food?days=7`);
-      setEntries(response.data.entries || []);
+      const nextEntries: FoodEntry[] = response.data.entries || [];
+      const totals: DailyTotal[] = response.data.totals || [];
       const today = new Date().toISOString().split('T')[0];
-      const todayRow = (response.data.totals || []).find((t: DailyTotal) => t.day === today);
-      setTodayTotals(todayRow || null);
+      const todayRow = totals.find((t) => t.day === today) || null;
+
+      setEntries(nextEntries);
+      setTodayTotals(todayRow);
     } catch (err) {
       console.error('Error fetching food log:', err);
     } finally {
@@ -146,14 +308,12 @@ const FoodTrackerWidget: React.FC = () => {
     fetchFoodLog();
   }, [fetchFoodLog]);
 
-  // Fetch Ollama models
   useEffect(() => {
     const fetchModels = async () => {
       try {
         const resp = await axios.get(`${API_BASE_URL}/models`);
         const allModels: OllamaModel[] = resp.data.models || [];
         setModels(allModels);
-        // Prefer a known vision model as default
         const visionModel = allModels.find(isVisionModel);
         setSelectedModel(visionModel?.name || allModels[0]?.name || '');
       } catch {
@@ -163,13 +323,13 @@ const FoodTrackerWidget: React.FC = () => {
     fetchModels();
   }, []);
 
-  // Close model picker on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
         setShowModelPicker(false);
       }
     };
+
     if (showModelPicker) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -226,20 +386,23 @@ const FoodTrackerWidget: React.FC = () => {
 
   const modelPickerChevronClassName = `text-tertiary shrink-0 transition-transform ${showModelPicker ? 'rotate-180' : ''}`;
 
-
-  // Generate a small JPEG thumbnail from a data URL
   const generateThumbnail = (dataUrl: string, maxSize = 200): Promise<string> => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
         const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
         canvas.width = Math.round(img.width * scale);
         canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext('2d')!;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Failed to prepare image preview.'));
+          return;
+        }
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         resolve(canvas.toDataURL('image/jpeg', 0.6));
       };
+      img.onerror = () => reject(new Error('Failed to prepare image preview.'));
       img.src = dataUrl;
     });
   };
@@ -249,6 +412,7 @@ const FoodTrackerWidget: React.FC = () => {
       setError('Please provide an image file (JPEG, PNG, WebP, etc.)');
       return;
     }
+
     setSelectedEntryId(null);
     setError(null);
     setAnalysisResult(null);
@@ -256,21 +420,40 @@ const FoodTrackerWidget: React.FC = () => {
     setEntryDraft(null);
     setEditingResult(false);
     setResultDraft(null);
+    setSelectedTakenAt(null);
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const dataUrl = e.target?.result as string;
-      setImagePreview(dataUrl);
+    let takenAt: string | null = null;
+    if (canExtractTakenAt(file)) {
+      try {
+        takenAt = await extractTakenAtFromImage(file);
+      } catch (err) {
+        console.warn('Failed to read food image capture time metadata:', err);
+      }
+    }
 
-      // Strip data URL prefix for Ollama
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.onerror = () => reject(new Error('Failed to read image file.'));
+        reader.readAsDataURL(file);
+      });
+
       const base64 = dataUrl.split(',')[1];
-      setImageBase64(base64);
+      if (!base64) {
+        setError('Invalid image payload. Try dropping the image again.');
+        return;
+      }
 
-      // Generate small thumbnail for DB storage
       const thumb = await generateThumbnail(dataUrl);
+      setImagePreview(dataUrl);
+      setImageBase64(base64);
       setImageThumbnail(thumb);
-    };
-    reader.readAsDataURL(file);
+      setSelectedTakenAt(takenAt);
+    } catch (err) {
+      console.error('Failed to prepare food image:', err);
+      setError(err instanceof Error ? err.message : 'Failed to read image file.');
+    }
   }, []);
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -298,16 +481,21 @@ const FoodTrackerWidget: React.FC = () => {
     if (file) processImage(file);
     e.target.value = '';
     setSelectedEntryId(null);
-  };  const clearImage = () => {
+  };
+
+  const clearImage = () => {
     setImagePreview(null);
     setImageBase64(null);
     setImageThumbnail(null);
+    setSelectedTakenAt(null);
     setAnalysisResult(null);
     setSelectedEntryId(null);
     setEditingResult(false);
     setResultDraft(null);
     setError(null);
+    setHint('');
   };
+
   const parseNullableNumber = (value: string, field: string) => {
     const trimmed = value.trim();
     if (!trimmed) return null;
@@ -347,6 +535,7 @@ const FoodTrackerWidget: React.FC = () => {
     const sourceImage = overrides?.sourceImage ?? imageBase64;
     const entryId = overrides?.entryId ?? null;
     const thumbnail = overrides?.thumbnail ?? imageThumbnail;
+    const takenAt = selectedTakenAt || analysisResult?.taken_at || undefined;
 
     if ((!sourceImage && !entryId) || !selectedModel) return;
 
@@ -362,27 +551,31 @@ const FoodTrackerWidget: React.FC = () => {
         model: selectedModel,
         thumbnail,
         entryId,
+        hint: hint.trim() || undefined,
+        takenAt,
       });
       const entry: FoodEntry = response.data;
       setAnalysisResult(entry);
       setEntries(prev => (entryId ? prev.map(existing => (existing.id === entry.id ? entry : existing)) : [entry, ...prev]));
       setSelectedEntryId(entry.id);
-      setImagePreview(entry.image_data ? `data:image/jpeg;base64,${entry.image_data}` : null);
+      setImagePreview(buildStoredImageDataUrl(entry.image_data));
       setImageBase64(entry.image_data || sourceImage || null);
       setImageThumbnail(entry.image_thumbnail || thumbnail || null);
+      setSelectedTakenAt(entry.taken_at || takenAt || null);
       fetchFoodLog();
       return entry;
     } catch (err: unknown) {
       const axiosErr = err as { response?: { status?: number; data?: { error?: string } | string } };
       const status = axiosErr.response?.status;
+      const data = axiosErr.response?.data;
+
       if (status === 413) {
-        setError('Image payload is too large for the backend parser. Restart the backend to apply the latest 50MB limit, then try again.');
+        setError(typeof data === 'string' ? data : data?.error || 'Image payload is too large. Please upload a smaller image.');
       } else if (status === 400) {
-        setError('Invalid image payload. Try dropping the image again.');
+        setError(typeof data === 'string' ? data : data?.error || 'Invalid image payload. Try dropping the image again.');
       } else {
-        const data = axiosErr.response?.data;
-        const msg = typeof data === 'string' ? null : data?.error;
-        setError(msg || 'Failed to analyze image. Check that the model supports vision.');
+        const message = typeof data === 'string' ? null : data?.error;
+        setError(message || 'Failed to analyze image. Check that the model supports vision.');
       }
       return null;
     } finally {
@@ -411,8 +604,9 @@ const FoodTrackerWidget: React.FC = () => {
     setError(null);
     setAnalysisResult(entry);
     setImageThumbnail(entry.image_thumbnail || null);
-    setImagePreview(entry.image_data ? `data:image/jpeg;base64,${entry.image_data}` : null);
+    setImagePreview(buildStoredImageDataUrl(entry.image_data));
     setImageBase64(entry.image_data || null);
+    setSelectedTakenAt(entry.taken_at || null);
 
     if (!entry.image_data) {
       try {
@@ -421,8 +615,9 @@ const FoodTrackerWidget: React.FC = () => {
         setAnalysisResult(hydrated);
         setEntries(prev => prev.map(existing => (existing.id === hydrated.id ? hydrated : existing)));
         setImageThumbnail(hydrated.image_thumbnail || null);
-        setImagePreview(hydrated.image_data ? `data:image/jpeg;base64,${hydrated.image_data}` : null);
+        setImagePreview(buildStoredImageDataUrl(hydrated.image_data));
         setImageBase64(hydrated.image_data || null);
+        setSelectedTakenAt(hydrated.taken_at || null);
       } catch (err) {
         console.error('Failed to load food entry details:', err);
         setError('Failed to load food details.');
@@ -511,8 +706,11 @@ const FoodTrackerWidget: React.FC = () => {
     setDeletingId(id);
     try {
       await axios.delete(`${API_BASE_URL}/food/${id}`);
-      setEntries(prev => prev.filter(e => e.id !== id));
-      if (analysisResult?.id === id) setAnalysisResult(null);
+      setEntries(prev => prev.filter(entry => entry.id !== id));
+      if (analysisResult?.id === id) {
+        setAnalysisResult(null);
+        setSelectedTakenAt(null);
+      }
       if (editingEntryId === id) {
         setEditingEntryId(null);
         setEntryDraft(null);
@@ -620,7 +818,6 @@ const FoodTrackerWidget: React.FC = () => {
 
   return (
     <div className="bento-card p-6 overflow-visible">
-      {/* Header */}
       <div className="flex items-center gap-2 mb-5">
         <div className="p-2.5 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl text-emerald-600 dark:text-emerald-400">
           <UtensilsCrossed size={20} />
@@ -632,9 +829,7 @@ const FoodTrackerWidget: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* ---- Left: Drop Zone + Analysis ---- */}
         <div className="flex flex-col gap-4">
-          {/* Drop Zone */}
           {!imagePreview ? (
             <div
               onClick={() => fileInputRef.current?.click()}
@@ -666,7 +861,6 @@ const FoodTrackerWidget: React.FC = () => {
               />
             </div>
           ) : (
-            /* Image Preview */
             <div className="relative rounded-2xl overflow-hidden bg-black/5 dark:bg-white/5">
               <img
                 src={imagePreview}
@@ -688,9 +882,15 @@ const FoodTrackerWidget: React.FC = () => {
             </div>
           )}
 
-          {/* Model Picker + Analyze Button */}
+          <input
+            type="text"
+            value={hint}
+            onChange={e => setHint(e.target.value)}
+            placeholder="Hint: e.g. 'pork cutlet', 'matcha latte'..."
+            className="w-full px-3 py-2 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 text-xs text-primary placeholder:text-tertiary focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+          />
+
           <div className="flex gap-2">
-            {/* Model selector */}
             <div className="relative flex-1" ref={modelPickerRef}>
               <button
                 onClick={toggleModelPicker}
@@ -725,7 +925,6 @@ const FoodTrackerWidget: React.FC = () => {
               )}
             </div>
 
-            {/* Analyze button */}
             <button
               onClick={handleAnalyze}
               disabled={!imageBase64 || !selectedModel || isAnalyzing}
@@ -736,14 +935,12 @@ const FoodTrackerWidget: React.FC = () => {
             </button>
           </div>
 
-          {/* Error */}
           {error && (
             <div className="p-3 rounded-xl bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 text-red-600 dark:text-red-400 text-xs font-medium">
               {error}
             </div>
           )}
 
-          {/* Analysis Result */}
           {analysisResult && (
             <div className="flex flex-col gap-3 p-4 rounded-2xl bg-black/3 dark:bg-white/3 border border-black/5 dark:border-white/10">
               {editingResult && resultDraft ? (
@@ -769,6 +966,9 @@ const FoodTrackerWidget: React.FC = () => {
                         {analysisResult.model_used && (
                           <p className="text-[9px] font-bold uppercase tracking-widest text-tertiary">Model: {analysisResult.model_used}</p>
                         )}
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-tertiary">
+                          {formatRelativeTime(getEntryEventTime(analysisResult))}
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 flex-wrap justify-end">
@@ -796,7 +996,6 @@ const FoodTrackerWidget: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Macro Grid */}
                   <div className="grid grid-cols-3 gap-2">
                     {[
                       { label: 'Calories', value: analysisResult.calories != null ? `${Math.round(analysisResult.calories)}` : '—', icon: <Flame size={10} />, color: 'text-orange-500' },
@@ -822,9 +1021,7 @@ const FoodTrackerWidget: React.FC = () => {
           )}
         </div>
 
-        {/* ---- Right: Food Log ---- */}
         <div className="flex flex-col gap-3">
-          {/* Today's macro summary */}
           <div className="grid grid-cols-4 gap-2">
             {[
               { label: 'kcal', value: todayTotals?.total_calories != null ? Math.round(todayTotals.total_calories).toString() : '—' },
@@ -839,7 +1036,6 @@ const FoodTrackerWidget: React.FC = () => {
             ))}
           </div>
 
-          {/* Entry list */}
           <div className="flex flex-col gap-2 overflow-y-auto max-h-72 pr-1">
             {isLoadingLog ? (
               <>
@@ -882,7 +1078,6 @@ const FoodTrackerWidget: React.FC = () => {
                       )
                     ) : (
                       <div className="flex items-center gap-3">
-                        {/* Thumbnail or icon */}
                         <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-black/5 dark:bg-white/5 flex items-center justify-center">
                           {entry.image_thumbnail ? (
                             <img src={entry.image_thumbnail} alt={entry.food_name} className="w-full h-full object-cover" />
@@ -891,7 +1086,6 @@ const FoodTrackerWidget: React.FC = () => {
                           )}
                         </div>
 
-                        {/* Info */}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-bold text-primary truncate">{entry.food_name}</p>
                           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -907,7 +1101,7 @@ const FoodTrackerWidget: React.FC = () => {
                           {entry.model_used && (
                             <p className="text-[9px] text-tertiary mt-0.5 truncate">Model: {entry.model_used}</p>
                           )}
-                          <p className="text-[9px] text-tertiary mt-0.5">{formatRelativeTime(entry.created_at)}</p>
+                          <p className="text-[9px] text-tertiary mt-0.5">{formatRelativeTime(getEntryEventTime(entry))}</p>
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-all" onClick={(e) => e.stopPropagation()}>
@@ -918,7 +1112,6 @@ const FoodTrackerWidget: React.FC = () => {
                             <Pencil size={12} />
                           </button>
 
-                          {/* Delete */}
                           <button
                             onClick={() => handleDelete(entry.id)}
                             disabled={deletingId === entry.id}

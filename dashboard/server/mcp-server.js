@@ -96,20 +96,21 @@ server.tool(
   ({ days, date }) => {
     try {
       let entries, summary;
+      const effectiveTimestamp = 'COALESCE(taken_at, created_at)';
       if (date) {
         entries = db.prepare(
-          'SELECT * FROM food_log WHERE date(created_at) = ? ORDER BY created_at DESC'
+          `SELECT * FROM food_log WHERE date(${effectiveTimestamp}) = ? ORDER BY ${effectiveTimestamp} DESC`
         ).all(date);
         summary = db.prepare(
-          'SELECT SUM(calories) as total_calories, SUM(protein_g) as total_protein, SUM(carbs_g) as total_carbs, SUM(fat_g) as total_fat, COUNT(*) as entry_count FROM food_log WHERE date(created_at) = ?'
+          `SELECT SUM(calories) as total_calories, SUM(protein_g) as total_protein, SUM(carbs_g) as total_carbs, SUM(fat_g) as total_fat, COUNT(*) as entry_count FROM food_log WHERE date(${effectiveTimestamp}) = ?`
         ).get(date);
       } else {
         const lookback = days || 1;
         entries = db.prepare(
-          "SELECT * FROM food_log WHERE created_at >= datetime('now', ? || ' days') ORDER BY created_at DESC"
+          `SELECT * FROM food_log WHERE ${effectiveTimestamp} >= datetime('now', ? || ' days') ORDER BY ${effectiveTimestamp} DESC`
         ).all(-lookback);
         summary = db.prepare(
-          "SELECT SUM(calories) as total_calories, SUM(protein_g) as total_protein, SUM(carbs_g) as total_carbs, SUM(fat_g) as total_fat, COUNT(*) as entry_count FROM food_log WHERE created_at >= datetime('now', ? || ' days')"
+          `SELECT SUM(calories) as total_calories, SUM(protein_g) as total_protein, SUM(carbs_g) as total_carbs, SUM(fat_g) as total_fat, COUNT(*) as entry_count FROM food_log WHERE ${effectiveTimestamp} >= datetime('now', ? || ' days')`
         ).get(-lookback);
       }
       return {
